@@ -41,7 +41,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npx vitest run test/integration/daemon.test.ts test/integration/hardening.test.ts
+      - run: npm run test:integration
 
   secrets:
     name: Secret scan
