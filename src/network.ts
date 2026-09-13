@@ -4,8 +4,19 @@ import { CommandError } from "./protocol.ts";
 import type { Tab } from "./sessions.ts";
 
 export const resourceTypes = [
-  "document", "stylesheet", "image", "media", "font", "script", "texttrack",
-  "xhr", "fetch", "eventsource", "websocket", "manifest", "other",
+  "document",
+  "stylesheet",
+  "image",
+  "media",
+  "font",
+  "script",
+  "texttrack",
+  "xhr",
+  "fetch",
+  "eventsource",
+  "websocket",
+  "manifest",
+  "other",
 ] as const;
 export type ResourceType = (typeof resourceTypes)[number];
 
@@ -125,10 +136,12 @@ export class NetworkLog {
   list(session: string, filter: NetworkFilter): NetworkEntry[] {
     const matchesStatus = filter.status === undefined ? () => true : parseStatusFilter(filter.status);
     const types = filter.types === undefined ? undefined : parseTypes(filter.types);
-    return (this.#sessions.get(session)?.entries ?? []).filter((entry) =>
-      (filter.urlGlob === undefined || urlGlobMatches(filter.urlGlob, entry.url))
-      && (types === undefined || types.has(entry.resourceType))
-      && matchesStatus(entry.status));
+    return (this.#sessions.get(session)?.entries ?? []).filter(
+      (entry) =>
+        (filter.urlGlob === undefined || urlGlobMatches(filter.urlGlob, entry.url)) &&
+        (types === undefined || types.has(entry.resourceType)) &&
+        matchesStatus(entry.status),
+    );
   }
 
   droppedCount(session: string): number {
@@ -136,10 +149,15 @@ export class NetworkLog {
   }
 
   entry(session: string, id: string): NetworkEntry {
-    const found = this.#sessions.get(session)?.entries.find((entry) => entry.id === id)
-      ?? this.#sessions.get(session)?.har?.find((entry) => entry.id === id);
+    const found =
+      this.#sessions.get(session)?.entries.find((entry) => entry.id === id) ??
+      this.#sessions.get(session)?.har?.find((entry) => entry.id === id);
     if (!found) {
-      throw new CommandError("bad_args", `no request ${id} in this session`, "run `patchrome network list`; old requests leave the buffer after 1000");
+      throw new CommandError(
+        "bad_args",
+        `no request ${id} in this session`,
+        "run `patchrome network list`; old requests leave the buffer after 1000",
+      );
     }
     return found;
   }
@@ -147,25 +165,44 @@ export class NetworkLog {
   // Chrome keeps a body only while the page that loaded it is alive, so bodies are read on demand.
   async body(entry: NetworkEntry): Promise<Buffer> {
     const response = this.#responses.get(entry.id);
-    if (!response) throw new CommandError("bad_args", `request ${entry.id} has no response`, entry.failure === undefined ? "the request is still pending" : `it failed: ${entry.failure}`);
+    if (!response)
+      throw new CommandError(
+        "bad_args",
+        `request ${entry.id} has no response`,
+        entry.failure === undefined ? "the request is still pending" : `it failed: ${entry.failure}`,
+      );
     try {
       return await response.body();
     } catch (err) {
-      const message = err instanceof Error ? err.message.split("\n")[0] ?? err.message : String(err);
-      throw new CommandError("tab_gone", `body of ${entry.id} is no longer available: ${message}`, "Chrome drops bodies when the tab closes or navigates away; reload and fetch it sooner");
+      const message = err instanceof Error ? (err.message.split("\n")[0] ?? err.message) : String(err);
+      throw new CommandError(
+        "tab_gone",
+        `body of ${entry.id} is no longer available: ${message}`,
+        "Chrome drops bodies when the tab closes or navigates away; reload and fetch it sooner",
+      );
     }
   }
 
   startHar(session: string): void {
     const network = this.#sessionFor(session);
-    if (network.har) throw new CommandError("bad_args", "a HAR recording is already running for this session", "run `patchrome network har stop` first");
+    if (network.har)
+      throw new CommandError(
+        "bad_args",
+        "a HAR recording is already running for this session",
+        "run `patchrome network har stop` first",
+      );
     network.har = [];
     network.harDroppedCount = 0;
   }
 
   stopHar(session: string): { entries: NetworkEntry[]; droppedCount: number } {
     const network = this.#sessions.get(session);
-    if (!network?.har) throw new CommandError("bad_args", "no HAR recording is running for this session", "run `patchrome network har start`");
+    if (!network?.har)
+      throw new CommandError(
+        "bad_args",
+        "no HAR recording is running for this session",
+        "run `patchrome network har start`",
+      );
     const result = { entries: network.har, droppedCount: network.harDroppedCount };
     network.har = undefined;
     this.#releaseResponses(result.entries.filter((entry) => !network.entries.includes(entry)));
@@ -211,7 +248,11 @@ function parseTypes(raw: string): Set<string> {
   const types = raw.split(",").map((part) => part.trim());
   for (const type of types) {
     if (!(resourceTypes as readonly string[]).includes(type)) {
-      throw new CommandError("bad_args", `--type ${type} is not a resource type`, `use any of ${resourceTypes.join(", ")}`);
+      throw new CommandError(
+        "bad_args",
+        `--type ${type} is not a resource type`,
+        `use any of ${resourceTypes.join(", ")}`,
+      );
     }
   }
   return new Set(types);

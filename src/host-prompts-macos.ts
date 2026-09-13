@@ -62,7 +62,13 @@ async function renamedOsascript(bundlesDir: string): Promise<string> {
   const system = await stat(systemOsascript);
   const hash = createHash("sha256").update(`${infoPlist}${system.size}:${system.mtimeMs}`).digest("hex").slice(0, 12);
   const executable = join(bundlesDir, hash, "patchrome.app", "Contents", "MacOS", "patchrome");
-  if (await stat(executable).then(() => true, () => false)) return executable;
+  if (
+    await stat(executable).then(
+      () => true,
+      () => false,
+    )
+  )
+    return executable;
 
   await mkdir(bundlesDir, { recursive: true });
   const building = await mkdtemp(join(bundlesDir, "building-"));
@@ -92,7 +98,11 @@ export function macosPrompts(bundlesDir: string, log: (message: string) => void)
         return systemOsascript;
       });
       try {
-        const { stdout } = await run(osascript, ["-l", "JavaScript", "-e", approvalScript, reason, String(Math.ceil(timeoutMs / 1000))], { timeout: timeoutMs + 10_000 });
+        const { stdout } = await run(
+          osascript,
+          ["-l", "JavaScript", "-e", approvalScript, reason, String(Math.ceil(timeoutMs / 1000))],
+          { timeout: timeoutMs + 10_000 },
+        );
         return parseApprovalAnswer(stdout);
       } catch (err) {
         return { answer: "unavailable", detail: helperFailure("osascript", err) };

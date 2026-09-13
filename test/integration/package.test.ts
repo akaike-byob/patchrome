@@ -12,10 +12,11 @@ describe("published package", () => {
   const workDir = mkdtempSync(join(tmpdir(), "patchrome-package-"));
   const home = makeHome("package");
   const installedBin = join(workDir, "prefix", "bin", "patchrome");
-  const runInstalled = (args: string[]) => execFileSync(installedBin, args, {
-    encoding: "utf8",
-    env: { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "" },
-  });
+  const runInstalled = (args: string[]) =>
+    execFileSync(installedBin, args, {
+      encoding: "utf8",
+      env: { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "" },
+    });
 
   afterAll(() => {
     if (existsSync(installedBin)) runInstalled(["--session", "pkg", "daemon", "stop"]);
@@ -31,8 +32,13 @@ describe("published package", () => {
     expect(listing).toContain("package/extension/tab-groups/manifest.json");
     expect(listing.filter((path) => /^package\/(src|test|spikes|scratch)\//.test(path))).toEqual([]);
 
-    execFileSync("npm", ["i", "-g", "--prefix", join(workDir, "prefix"), join(workDir, tarball ?? "")], { stdio: "ignore" });
-    const opened = JSON.parse(runInstalled(["--json", "--session", "pkg", "open"])) as { ok: boolean; data: { tab: string } };
+    execFileSync("npm", ["i", "-g", "--prefix", join(workDir, "prefix"), join(workDir, tarball ?? "")], {
+      stdio: "ignore",
+    });
+    const opened = JSON.parse(runInstalled(["--json", "--session", "pkg", "open"])) as {
+      ok: boolean;
+      data: { tab: string };
+    };
     expect(opened).toMatchObject({ ok: true, data: { tab: "t1" } });
 
     // The library from the same install talks to the daemon the CLI started.
@@ -41,7 +47,12 @@ describe("published package", () => {
     const libraryScript = `import { connect } from ${JSON.stringify(join(packageDir, "dist", "index.js"))};
       const browser = connect({ session: "pkg" });
       console.log(JSON.stringify(await browser.run("tabs")));`;
-    const tabs = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", libraryScript], { encoding: "utf8", env: { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "" } })) as { tabs: Array<{ id: string }> };
+    const tabs = JSON.parse(
+      execFileSync(process.execPath, ["--input-type=module", "-e", libraryScript], {
+        encoding: "utf8",
+        env: { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "" },
+      }),
+    ) as { tabs: Array<{ id: string }> };
     expect(tabs.tabs.map((tab) => tab.id)).toEqual(["t1"]);
   });
 });

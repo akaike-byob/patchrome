@@ -2,7 +2,90 @@ import type { Locator, Page } from "patchright";
 import { CommandError, type CommandArgs } from "./protocol.ts";
 
 // Roles Playwright's getByRole accepts, which are also the roles a snapshot line starts with.
-export const ariaRoles = ["alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox", "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "directory", "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img", "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "meter", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "navigation", "none", "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table", "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"] as const;
+export const ariaRoles = [
+  "alert",
+  "alertdialog",
+  "application",
+  "article",
+  "banner",
+  "blockquote",
+  "button",
+  "caption",
+  "cell",
+  "checkbox",
+  "code",
+  "columnheader",
+  "combobox",
+  "complementary",
+  "contentinfo",
+  "definition",
+  "deletion",
+  "dialog",
+  "directory",
+  "document",
+  "emphasis",
+  "feed",
+  "figure",
+  "form",
+  "generic",
+  "grid",
+  "gridcell",
+  "group",
+  "heading",
+  "img",
+  "insertion",
+  "link",
+  "list",
+  "listbox",
+  "listitem",
+  "log",
+  "main",
+  "marquee",
+  "math",
+  "meter",
+  "menu",
+  "menubar",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "navigation",
+  "none",
+  "note",
+  "option",
+  "paragraph",
+  "presentation",
+  "progressbar",
+  "radio",
+  "radiogroup",
+  "region",
+  "row",
+  "rowgroup",
+  "rowheader",
+  "scrollbar",
+  "search",
+  "searchbox",
+  "separator",
+  "slider",
+  "spinbutton",
+  "status",
+  "strong",
+  "subscript",
+  "superscript",
+  "switch",
+  "tab",
+  "table",
+  "tablist",
+  "tabpanel",
+  "term",
+  "textbox",
+  "time",
+  "timer",
+  "toolbar",
+  "tooltip",
+  "tree",
+  "treegrid",
+  "treeitem",
+] as const;
 export type AriaRole = (typeof ariaRoles)[number];
 
 export function isAriaRole(value: string): value is AriaRole {
@@ -27,12 +110,10 @@ export type ElementLocator =
 // show: Patchright's CSS engine pierces closed shadow roots, which hide a widget's whole subtree from the
 // accessibility tree. A point is viewport CSS pixels, read off a screenshot, for canvas and anything else
 // without an element to name. All of them end in trusted input events.
-export type Target =
-  | { kind: "ref"; ref: string }
-  | ElementLocator
-  | { kind: "point"; x: number; y: number };
+export type Target = { kind: "ref"; ref: string } | ElementLocator | { kind: "point"; x: number; y: number };
 
-const targetHint = "pass a ref from the latest snapshot, --role <role> [--name <name>], --text <text>, --label <text>, --selector <css>, or --at <x>,<y>";
+const targetHint =
+  "pass a ref from the latest snapshot, --role <role> [--name <name>], --text <text>, --label <text>, --selector <css>, or --at <x>,<y>";
 const locatorKinds = ["selector", "role", "text", "label"] as const;
 
 export function parseTarget(args: CommandArgs, { allowsPoint }: { allowsPoint: boolean }): Target {
@@ -40,16 +121,26 @@ export function parseTarget(args: CommandArgs, { allowsPoint }: { allowsPoint: b
   const at = typeof args.at === "string" ? args.at : undefined;
   const locatorNames = locatorKinds.filter((name) => typeof args[name] === "string");
   const given = [ref, at].filter((value) => value !== undefined).length + locatorNames.length;
-  if (given !== 1) throw new CommandError("bad_args", given === 0 ? "no target given" : "give one target, not several", targetHint);
+  if (given !== 1)
+    throw new CommandError("bad_args", given === 0 ? "no target given" : "give one target, not several", targetHint);
   if (ref !== undefined || at !== undefined) {
-    const stray = (["frame", "nth", "name"] as const).find((name) => args[name] !== undefined) ?? (args.exact === true ? "exact" : undefined);
-    if (stray !== undefined) throw new CommandError("bad_args", `--${stray} goes with --role, --text, --label or --selector`, targetHint);
+    const stray =
+      (["frame", "nth", "name"] as const).find((name) => args[name] !== undefined) ??
+      (args.exact === true ? "exact" : undefined);
+    if (stray !== undefined)
+      throw new CommandError("bad_args", `--${stray} goes with --role, --text, --label or --selector`, targetHint);
   }
   if (ref !== undefined) return { kind: "ref", ref };
   if (at === undefined) return parseElementLocator(args, targetHint) ?? unreachable();
-  if (!allowsPoint) throw new CommandError("bad_args", "--at works with click only", "click the field with --at first, then run `patchrome type <text>`");
+  if (!allowsPoint)
+    throw new CommandError(
+      "bad_args",
+      "--at works with click only",
+      "click the field with --at first, then run `patchrome type <text>`",
+    );
   const match = at.match(/^(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/);
-  if (!match?.[1] || !match[2]) throw new CommandError("bad_args", `--at takes <x>,<y> in viewport pixels, got ${at}`, "for example --at 120,340");
+  if (!match?.[1] || !match[2])
+    throw new CommandError("bad_args", `--at takes <x>,<y> in viewport pixels, got ${at}`, "for example --at 120,340");
   return { kind: "point", x: Number(match[1]), y: Number(match[2]) };
 }
 
@@ -62,21 +153,40 @@ export function parseElementLocator(args: CommandArgs, hint: string): ElementLoc
   const isExact = args.exact === true;
   const frame = typeof args.frame === "string" ? args.frame : undefined;
   if (kind === undefined) {
-    const stray = frame !== undefined ? "frame" : name !== undefined ? "name" : args.nth !== undefined ? "nth" : isExact ? "exact" : undefined;
-    if (stray !== undefined) throw new CommandError("bad_args", `--${stray} goes with --role, --text, --label or --selector`, hint);
+    const stray =
+      frame !== undefined
+        ? "frame"
+        : name !== undefined
+          ? "name"
+          : args.nth !== undefined
+            ? "nth"
+            : isExact
+              ? "exact"
+              : undefined;
+    if (stray !== undefined)
+      throw new CommandError("bad_args", `--${stray} goes with --role, --text, --label or --selector`, hint);
     return undefined;
   }
-  if (given.length > 1) throw new CommandError("bad_args", `give one of ${given.map((option) => `--${option}`).join(" ")}, not several`, hint);
+  if (given.length > 1)
+    throw new CommandError(
+      "bad_args",
+      `give one of ${given.map((option) => `--${option}`).join(" ")}, not several`,
+      hint,
+    );
   const value = String(args[kind]);
-  if (value === "" || frame === "") throw new CommandError("bad_args", `--${kind}${frame === "" ? " and --frame" : ""} need a non-empty value`, hint);
-  if (name !== undefined && kind !== "role") throw new CommandError("bad_args", "--name goes with --role", "for example --role button --name 'Sign in'");
-  if (isExact && (kind === "selector" || (kind === "role" && name === undefined))) throw new CommandError("bad_args", "--exact goes with --name, --text or --label", hint);
+  if (value === "" || frame === "")
+    throw new CommandError("bad_args", `--${kind}${frame === "" ? " and --frame" : ""} need a non-empty value`, hint);
+  if (name !== undefined && kind !== "role")
+    throw new CommandError("bad_args", "--name goes with --role", "for example --role button --name 'Sign in'");
+  if (isExact && (kind === "selector" || (kind === "role" && name === undefined)))
+    throw new CommandError("bad_args", "--exact goes with --name, --text or --label", hint);
   const scope: LocatorScope = { frame, nth: parseNth(args.nth) };
   switch (kind) {
     case "selector":
       return { kind, selector: value, ...scope };
     case "role":
-      if (!isAriaRole(value)) throw new CommandError("bad_args", `--role ${value} is not an ARIA role`, `roles: ${ariaRoles.join(" ")}`);
+      if (!isAriaRole(value))
+        throw new CommandError("bad_args", `--role ${value} is not an ARIA role`, `roles: ${ariaRoles.join(" ")}`);
       return { kind, role: value, name, isExact, ...scope };
     case "text":
       return { kind, text: value, isExact, ...scope };
@@ -88,7 +198,8 @@ export function parseElementLocator(args: CommandArgs, hint: string): ElementLoc
 function parseNth(raw: CommandArgs[string]): number | undefined {
   if (raw === undefined) return undefined;
   const nth = Number(raw);
-  if (!Number.isInteger(nth) || nth < 0) throw new CommandError("bad_args", `--nth must be a whole number from 0, got ${String(raw)}`);
+  if (!Number.isInteger(nth) || nth < 0)
+    throw new CommandError("bad_args", `--nth must be a whole number from 0, got ${String(raw)}`);
   return nth;
 }
 
@@ -103,7 +214,10 @@ export function elementLocator(page: Page, target: ElementLocator): Locator {
       case "selector":
         return root.locator(target.selector);
       case "role":
-        return root.getByRole(target.role, target.name === undefined ? {} : { name: target.name, exact: target.isExact });
+        return root.getByRole(
+          target.role,
+          target.name === undefined ? {} : { name: target.name, exact: target.isExact },
+        );
       case "text":
         return root.getByText(target.text, { exact: target.isExact });
       case "label":

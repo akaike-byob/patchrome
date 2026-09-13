@@ -26,6 +26,7 @@ export async function keepFocusDuring<T>(launch: Promise<T>, graceMs: number): P
 
   let isWatching = true;
   void (async () => {
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- the grace timer in the finally below clears it
     while (isWatching) {
       if ((await frontmostBundleId()) === chromeBundleId) {
         await run("open", ["-b", previous]).catch(() => undefined);

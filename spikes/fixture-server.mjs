@@ -27,5 +27,7 @@ export function startFixtureServer() {
     }
     res.writeHead(404).end();
   });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, origin: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve({ server, origin: `http://127.0.0.1:${server.address().port}` })),
+  );
 }

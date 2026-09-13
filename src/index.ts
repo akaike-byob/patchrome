@@ -27,7 +27,10 @@ export class Patchrome {
   readonly #timeoutMs: number | undefined;
 
   constructor(options: ConnectOptions = {}) {
-    const env = { ...(options.env ?? process.env), ...(options.profile === undefined ? {} : { PATCHROME_PROFILE: options.profile }) };
+    const env = {
+      ...(options.env ?? process.env),
+      ...(options.profile === undefined ? {} : { PATCHROME_PROFILE: options.profile }),
+    };
     let session = options.session;
     this.#runner = new CommandRunner(env, () => {
       session ??= resolveSessionName(env, process.ppid, lookupProcess);
@@ -43,7 +46,10 @@ export class Patchrome {
   // For `watch` and `console --follow`: onEvent gets each event's fields, and the promise resolves when the
   // stream stops.
   async stream(words: string[], onEvent: (fields: CommandFields) => void): Promise<CommandFields> {
-    const argv = this.#timeoutMs === undefined || words.includes("--timeout-ms") ? words : ["--timeout-ms", String(this.#timeoutMs), ...words];
+    const argv =
+      this.#timeoutMs === undefined || words.includes("--timeout-ms")
+        ? words
+        : ["--timeout-ms", String(this.#timeoutMs), ...words];
     const result = await this.#runner.run(argv, { onStream: (stream) => onEvent(stream.fields) });
     if (!result.ok) throw new CommandError(result.error.code, result.error.message, result.error.hint);
     return result.data;

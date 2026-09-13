@@ -100,7 +100,10 @@ describe("sessions and commands in one shared Chrome", () => {
     await runCli(home, "selfclose", ["click", `@${linkRef}`]);
     let popupId: string | undefined;
     for (let attempt = 0; attempt < 20 && popupId === undefined; attempt++) {
-      const tabs = (await runCli(home, "selfclose", ["tabs"])).json.data?.tabs as Array<{ id: string; isCurrent: boolean }>;
+      const tabs = (await runCli(home, "selfclose", ["tabs"])).json.data?.tabs as Array<{
+        id: string;
+        isCurrent: boolean;
+      }>;
       popupId = tabs.find((tab) => !tab.isCurrent)?.id;
     }
     expect((await runCli(home, "selfclose", ["switch", String(popupId)])).json).toMatchObject({ ok: true });
@@ -135,7 +138,10 @@ describe("sessions and commands in one shared Chrome", () => {
 
   it("closes a session's tabs and forgets it", async () => {
     await runCli(home, "done", ["open", `${fixture.origin}/form?name=done`]);
-    expect((await runCli(home, "done", ["session", "close"])).json).toMatchObject({ ok: true, data: { closedTabs: 1 } });
+    expect((await runCli(home, "done", ["session", "close"])).json).toMatchObject({
+      ok: true,
+      data: { closedTabs: 1 },
+    });
     expect((await runCli(home, "done", ["tabs"])).json.data?.tabs).toEqual([]);
   });
 });

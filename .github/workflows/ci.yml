@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   check:
-    name: Typecheck, unit tests, build
+    name: Format, lint, typecheck, unit tests, build
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -24,6 +24,8 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run build

@@ -111,7 +111,11 @@ export class SessionRegistry {
       throw new CommandError("tab_gone", `no open tab ${tabId}`, "run `patchrome tabs` to list this session's tabs");
     }
     if (tab.session !== sessionName) {
-      throw new CommandError("bad_args", `tab ${tabId} belongs to another session`, "a session only acts on tabs it opened");
+      throw new CommandError(
+        "bad_args",
+        `tab ${tabId} belongs to another session`,
+        "a session only acts on tabs it opened",
+      );
     }
     return tab;
   }
@@ -138,7 +142,9 @@ export class SessionRegistry {
   openTabsOf(sessionName: string): Tab[] {
     const session = this.#sessions.get(sessionName);
     if (!session) return [];
-    return [...session.tabIds].map((id) => this.#tabs.get(id)).filter((tab): tab is Tab => tab !== undefined && !tab.isClosed);
+    return [...session.tabIds]
+      .map((id) => this.#tabs.get(id))
+      .filter((tab): tab is Tab => tab !== undefined && !tab.isClosed);
   }
 
   forget(sessionName: string): void {
@@ -195,7 +201,14 @@ export class SessionRegistry {
   #sessionFor(name: string): Session {
     let session = this.#sessions.get(name);
     if (!session) {
-      session = { name, tabIds: new Set(), currentTabId: undefined, origins: new Set(), browserContextId: undefined, label: undefined };
+      session = {
+        name,
+        tabIds: new Set(),
+        currentTabId: undefined,
+        origins: new Set(),
+        browserContextId: undefined,
+        label: undefined,
+      };
       this.#sessions.set(name, session);
     }
     return session;

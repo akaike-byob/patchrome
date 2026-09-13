@@ -6,8 +6,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const frontmostApp = () => execFileSync("osascript", ["-e", 'tell application "System Events" to get name of first application process whose frontmost is true']).toString().trim();
-const focusFinder = async () => { execFileSync("open", ["-a", "Finder"]); await sleep(1500); };
+const frontmostApp = () =>
+  execFileSync("osascript", [
+    "-e",
+    'tell application "System Events" to get name of first application process whose frontmost is true',
+  ])
+    .toString()
+    .trim();
+const focusFinder = async () => {
+  execFileSync("open", ["-a", "Finder"]);
+  await sleep(1500);
+};
 const report = async (label, step) => {
   await focusFinder();
   await step();
@@ -15,12 +24,19 @@ const report = async (label, step) => {
   console.log(`${label}: frontmost=${frontmostApp()}`);
 };
 
-const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike5-")), { channel: "chrome", headless: false, viewport: null, chromiumSandbox: true });
+const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike5-")), {
+  channel: "chrome",
+  headless: false,
+  viewport: null,
+  chromiumSandbox: true,
+});
 const firstPage = context.pages()[0];
 const html = "data:text/html,<title>t</title><input id=i><button onclick=\"i.value='x'\">b</button>";
 
 let page;
-await report("context.newPage()", async () => { page = await context.newPage(); });
+await report("context.newPage()", async () => {
+  page = await context.newPage();
+});
 await report("goto", () => page.goto(html));
 await report("fill", () => page.locator("#i").fill("hello"));
 await report("click", () => page.locator("button").click());
@@ -38,6 +54,8 @@ await report("CDP Target.createTarget background:true", async () => {
 await report("goto in background target", () => backgroundPage.goto(html));
 await report("fill in background target", () => backgroundPage.locator("#i").fill("bg"));
 console.log("background fill value:", await backgroundPage.locator("#i").inputValue());
-await report("screenshot of non-selected tab", () => backgroundPage.screenshot({ path: join(tmpdir(), "spike5-bg.png") }));
+await report("screenshot of non-selected tab", () =>
+  backgroundPage.screenshot({ path: join(tmpdir(), "spike5-bg.png") }),
+);
 
 await context.close();

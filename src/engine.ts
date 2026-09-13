@@ -60,14 +60,17 @@ export class PatchrightEngine implements BrowserEngine {
   async launch(chromeProfileDir: string, mode: ProfileMode): Promise<void> {
     // A port file left by an earlier Chrome would point at a dead port.
     await rm(join(chromeProfileDir, "DevToolsActivePort"), { force: true });
-    const context = await keepFocusDuring(chromium.launchPersistentContext(chromeProfileDir, {
-      channel: "chrome",
-      headless: false,
-      viewport: null,
-      // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
-      chromiumSandbox: true,
-      args: launchArgsFor(mode),
-    }), focusGraceMs);
+    const context = await keepFocusDuring(
+      chromium.launchPersistentContext(chromeProfileDir, {
+        channel: "chrome",
+        headless: false,
+        viewport: null,
+        // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
+        chromiumSandbox: true,
+        args: launchArgsFor(mode),
+      }),
+      focusGraceMs,
+    );
     context.on("close", () => {
       for (const listener of this.#closedListeners) listener();
     });
@@ -100,7 +103,9 @@ export class PatchrightEngine implements BrowserEngine {
   async cookies(urls: string[] | undefined, browserContextId?: string): Promise<Cookie[]> {
     if (browserContextId === undefined) return this.#requireContext().cookies(urls);
     const { cookies } = await this.#requireBrowserCdp().send("Storage.getCookies", { browserContextId });
-    return cookies.map(playwrightCookieOf).filter((cookie) => urls === undefined || urls.some((url) => cookieAppliesTo(cookie, url)));
+    return cookies
+      .map(playwrightCookieOf)
+      .filter((cookie) => urls === undefined || urls.some((url) => cookieAppliesTo(cookie, url)));
   }
 
   async addCookies(cookies: Cookie[], browserContextId?: string): Promise<void> {
@@ -132,16 +137,27 @@ export class PatchrightEngine implements BrowserEngine {
   async groupTabs(pages: Page[], title: string, color: TabGroupColor): Promise<void> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
     const worker = await this.#tabGroupsWorker();
-    await evaluateInWorker(worker, ({ targetIds, title, color }) => (globalThis as unknown as TabGroupsWorker).patchromeGroupTabs({ targetIds, title, color }), { targetIds, title, color });
+    await evaluateInWorker(
+      worker,
+      (request) => (globalThis as unknown as TabGroupsWorker).patchromeGroupTabs(request),
+      { targetIds, title, color },
+    );
   }
 
   async describeTabGroups(pages: Page[]): Promise<TabGroupSummary[]> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
     const worker = await this.#tabGroupsWorker();
-    return evaluateInWorker(worker, ({ targetIds }) => (globalThis as unknown as TabGroupsWorker).patchromeDescribeTabGroups({ targetIds }), { targetIds });
+    return evaluateInWorker(
+      worker,
+      (request) => (globalThis as unknown as TabGroupsWorker).patchromeDescribeTabGroups(request),
+      { targetIds },
+    );
   }
 
-  async readProfileCopy(copyUserDataDir: string, origins: string[]): Promise<{ cookies: Cookie[]; origins: OriginStorage[] }> {
+  async readProfileCopy(
+    copyUserDataDir: string,
+    origins: string[],
+  ): Promise<{ cookies: Cookie[]; origins: OriginStorage[] }> {
     const reader = await chromium.launchPersistentContext(copyUserDataDir, {
       channel: "chrome",
       headless: true,
@@ -150,13 +166,19 @@ export class PatchrightEngine implements BrowserEngine {
       ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"],
     });
     try {
-      await reader.route("**/*", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>patchrome import</title>" }));
+      await reader.route("**/*", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>patchrome import</title>",
+        }),
+      );
       const cookies = await reader.cookies();
       const page = await reader.newPage();
       const storage: OriginStorage[] = [];
       for (const origin of origins) {
         await page.goto(`${origin}/`, { waitUntil: "commit" });
-        storage.push({ origin, ...await page.evaluate(readOriginStorageInPage, undefined, undefined, true) });
+        storage.push({ origin, ...(await page.evaluate(readOriginStorageInPage, undefined, undefined, true)) });
       }
       return { cookies, origins: storage };
     } finally {
@@ -225,8 +247,10 @@ export class PatchrightEngine implements BrowserEngine {
     const context = this.#requireContext();
     const prefix = `chrome-extension://${this.#tabGroupsExtensionId}/`;
     const isTabGroupsWorker = (worker: Worker) => worker.url().startsWith(prefix);
-    return context.serviceWorkers().find(isTabGroupsWorker)
-      ?? context.waitForEvent("serviceworker", { predicate: isTabGroupsWorker, timeout: extensionWorkerWaitMs });
+    return (
+      context.serviceWorkers().find(isTabGroupsWorker) ??
+      context.waitForEvent("serviceworker", { predicate: isTabGroupsWorker, timeout: extensionWorkerWaitMs })
+    );
   }
 
   #requireContext(): BrowserContext {
@@ -260,7 +284,12 @@ interface TabGroupsWorker {
 
 // Patchright evaluates in an isolated world by default, where the extension's globals do not exist.
 function evaluateInWorker<Arg, Result>(worker: Worker, fn: (arg: Arg) => Promise<Result>, arg: Arg): Promise<Result> {
-  const evaluate = worker.evaluate as unknown as (fn: (arg: Arg) => Promise<Result>, arg: Arg, isolatedContext: boolean) => Promise<Result>;
+  // oxlint-disable-next-line typescript/unbound-method -- called with worker as this on the next line
+  const evaluate = worker.evaluate as unknown as (
+    fn: (arg: Arg) => Promise<Result>,
+    arg: Arg,
+    isolatedContext: boolean,
+  ) => Promise<Result>;
   return evaluate.call(worker, fn, arg, false);
 }
 
@@ -270,7 +299,8 @@ async function readDevToolsEndpoint(chromeProfileDir: string): Promise<Debugging
   while (Date.now() < deadlineMs) {
     const content = await readFile(join(chromeProfileDir, "DevToolsActivePort"), "utf8").catch(() => "");
     const [port, browserPath] = content.split("\n");
-    if (port && browserPath) return { httpUrl: `http://127.0.0.1:${port}`, browserWsUrl: `ws://127.0.0.1:${port}${browserPath}` };
+    if (port && browserPath)
+      return { httpUrl: `http://127.0.0.1:${port}`, browserWsUrl: `ws://127.0.0.1:${port}${browserPath}` };
     await sleep(100);
   }
   throw new Error(`Chrome wrote no DevToolsActivePort in ${chromeProfileDir} within ${devToolsPortWaitMs} ms`);
@@ -305,8 +335,19 @@ function playwrightCookieOf(cookie: CdpCookie): Cookie {
 function cookieAppliesTo(cookie: Cookie, url: string): boolean {
   const parsed = new URL(url);
   const domain = cookie.domain.replace(/^\./, "");
-  const isHostMatch = parsed.hostname === domain || (cookie.domain.startsWith(".") && parsed.hostname.endsWith(`.${domain}`));
+  const isHostMatch =
+    parsed.hostname === domain || (cookie.domain.startsWith(".") && parsed.hostname.endsWith(`.${domain}`));
   const path = parsed.pathname || "/";
-  const isPathMatch = path === cookie.path || path.startsWith(cookie.path.endsWith("/") ? cookie.path : `${cookie.path}/`) || cookie.path === "/";
-  return isHostMatch && isPathMatch && (!cookie.secure || parsed.protocol === "https:" || parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost");
+  const isPathMatch =
+    path === cookie.path ||
+    path.startsWith(cookie.path.endsWith("/") ? cookie.path : `${cookie.path}/`) ||
+    cookie.path === "/";
+  return (
+    isHostMatch &&
+    isPathMatch &&
+    (!cookie.secure ||
+      parsed.protocol === "https:" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "localhost")
+  );
 }

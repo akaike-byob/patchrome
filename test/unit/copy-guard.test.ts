@@ -3,7 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseCli } from "../../src/cli.ts";
-import { CopyGuard, helperFailure, parseApprovalAnswer, readAuditLog, type ApprovalAnswer, type CopyRequest, type HostPrompts } from "../../src/copy-guard.ts";
+import {
+  CopyGuard,
+  helperFailure,
+  parseApprovalAnswer,
+  readAuditLog,
+  type ApprovalAnswer,
+  type CopyRequest,
+  type HostPrompts,
+} from "../../src/copy-guard.ts";
 import { detectHostPlatform } from "../../src/host-platform.ts";
 import { hostPromptsFor } from "../../src/host-prompts.ts";
 import { approvalScript, encodedPowerShell, powerShellString } from "../../src/host-prompts-wsl.ts";
@@ -42,7 +50,18 @@ function guardWith(answers: Array<ApprovalAnswer | Error | Promise<ApprovalAnswe
       notified.push(`${title} | ${body}`);
     },
   };
-  return { guard: new CopyGuard({ prompts, auditLogPath, profile: "stealth", log: () => {}, nowMs: () => Date.UTC(2026, 8, 13, 6, 30) }), auditLogPath, asked, notified };
+  return {
+    guard: new CopyGuard({
+      prompts,
+      auditLogPath,
+      profile: "stealth",
+      log: () => {},
+      nowMs: () => Date.UTC(2026, 8, 13, 6, 30),
+    }),
+    auditLogPath,
+    asked,
+    notified,
+  };
 }
 
 async function codeOf(action: Promise<unknown>): Promise<string | undefined> {
@@ -58,10 +77,14 @@ describe("CopyGuard", () => {
   it("lets an approved copy through, records it, and does not notify the person who approved it", async () => {
     const { guard, auditLogPath, asked, notified } = guardWith(["approved"]);
     await guard.requireApproval(importRequest);
-    expect(asked[0]).toBe(`import the github.com login (3 cookies and storage for 1 origin) from Chrome profile "Work" (Profile 1) into patchrome profile stealth (shared by every session). Asked by agent session claude-1.`);
+    expect(asked[0]).toBe(
+      `import the github.com login (3 cookies and storage for 1 origin) from Chrome profile "Work" (Profile 1) into patchrome profile stealth (shared by every session). Asked by agent session claude-1.`,
+    );
     expect(notified).toEqual([]);
     const { entries } = await readAuditLog(auditLogPath);
-    expect(entries).toEqual([{ ...importRequest, atUtc: "2026-09-13T06:30:00.000Z", profile: "stealth", decision: "approved" }]);
+    expect(entries).toEqual([
+      { ...importRequest, atUtc: "2026-09-13T06:30:00.000Z", profile: "stealth", decision: "approved" },
+    ]);
   });
 
   it("refuses a denied copy with copy_denied and records the denial", async () => {
@@ -78,14 +101,25 @@ describe("CopyGuard", () => {
     expect(notified).toHaveLength(2);
     expect(notified[0]).toMatch(/^patchrome copy timed out \| claude-1: import the github.com login/);
     const { entries } = await readAuditLog(auditLogPath);
-    expect(entries.map((entry) => [entry.decision, entry.detail])).toEqual([["timed_out", undefined], ["unavailable", "osascript: command not found"]]);
+    expect(entries.map((entry) => [entry.decision, entry.detail])).toEqual([
+      ["timed_out", undefined],
+      ["unavailable", "osascript: command not found"],
+    ]);
   });
 
   it("records and notifies a save without asking", async () => {
     const { guard, auditLogPath, asked, notified } = guardWith([]);
-    await guard.recordUnasked({ ...importRequest, kind: "state-save", site: undefined, source: "patchrome profile stealth", target: "file /x/state.json" });
+    await guard.recordUnasked({
+      ...importRequest,
+      kind: "state-save",
+      site: undefined,
+      source: "patchrome profile stealth",
+      target: "file /x/state.json",
+    });
     expect(asked).toEqual([]);
-    expect(notified[0]).toContain("save 3 cookies and storage for 1 origin from patchrome profile stealth to file /x/state.json");
+    expect(notified[0]).toContain(
+      "save 3 cookies and storage for 1 origin from patchrome profile stealth to file /x/state.json",
+    );
     const [entry] = (await readAuditLog(auditLogPath)).entries;
     expect(entry).toMatchObject({ kind: "state-save", decision: "not_asked" });
     expect(entry).not.toHaveProperty("site");
@@ -93,7 +127,12 @@ describe("CopyGuard", () => {
 
   it("shows one prompt at a time", async () => {
     let answerFirst: (answer: ApprovalAnswer) => void = () => {};
-    const { guard, asked } = guardWith([new Promise<ApprovalAnswer>((resolve) => { answerFirst = resolve; }), "approved"]);
+    const { guard, asked } = guardWith([
+      new Promise<ApprovalAnswer>((resolve) => {
+        answerFirst = resolve;
+      }),
+      "approved",
+    ]);
     const first = guard.requireApproval(importRequest);
     const second = guard.requireApproval({ ...importRequest, session: "claude-2" });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -107,7 +146,12 @@ describe("CopyGuard", () => {
   it("fails the copy when the audit log cannot be written", async () => {
     const notADirectory = join(mkdtempSync(join(tmpdir(), "patchrome-audit-")), "file");
     writeFileSync(notADirectory, "");
-    const guard = new CopyGuard({ prompts: hostPromptsFor("linux", () => {}, "/unused"), auditLogPath: join(notADirectory, "copy-audit.jsonl"), profile: "stealth", log: () => {} });
+    const guard = new CopyGuard({
+      prompts: hostPromptsFor("linux", () => {}, "/unused"),
+      auditLogPath: join(notADirectory, "copy-audit.jsonl"),
+      profile: "stealth",
+      log: () => {},
+    });
     await expect(guard.requireApproval(importRequest)).rejects.toThrow(/ENOTDIR|EEXIST/);
   });
 });
@@ -115,7 +159,12 @@ describe("CopyGuard", () => {
 describe("audit log", () => {
   it("reports lines it cannot read instead of dropping them", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "patchrome-audit-")), "copy-audit.jsonl");
-    const guard = new CopyGuard({ prompts: hostPromptsFor("linux", () => {}, "/unused"), auditLogPath: path, profile: "stealth", log: () => {} });
+    const guard = new CopyGuard({
+      prompts: hostPromptsFor("linux", () => {}, "/unused"),
+      auditLogPath: path,
+      profile: "stealth",
+      log: () => {},
+    });
     await guard.recordUnasked({ ...importRequest, kind: "state-save" });
     writeFileSync(path, `${readFileSync(path, "utf8")}not json\n{"decision":"approved"}\n`);
     const { entries, unreadableLines } = await readAuditLog(path);
@@ -124,12 +173,19 @@ describe("audit log", () => {
   });
 
   it("reads a missing log as empty", async () => {
-    expect(await readAuditLog(join(tmpdir(), "patchrome-no-such-dir", "copy-audit.jsonl"))).toEqual({ entries: [], unreadableLines: [] });
+    expect(await readAuditLog(join(tmpdir(), "patchrome-no-such-dir", "copy-audit.jsonl"))).toEqual({
+      entries: [],
+      unreadableLines: [],
+    });
   });
 
   it("is listed by `audit`, locally", () => {
     expect(parseCli(["audit"], {}, () => "s")).toEqual({ kind: "audit", count: 20, isJson: false });
-    expect(parseCli(["--json", "audit", "--count", "5"], {}, () => "s")).toEqual({ kind: "audit", count: 5, isJson: true });
+    expect(parseCli(["--json", "audit", "--count", "5"], {}, () => "s")).toEqual({
+      kind: "audit",
+      count: 5,
+      isJson: true,
+    });
     expect(() => parseCli(["audit", "--count", "0"], {}, () => "s")).toThrow(CommandError);
   });
 });
@@ -141,14 +197,31 @@ describe("approval settings and platforms", () => {
   });
 
   it("names a failed helper in one line", () => {
-    expect(helperFailure("osascript", Object.assign(new Error("Command failed: osascript -l JavaScript -e\nObjC.import"), { killed: false, signal: "SIGTERM", code: null }))).toBe("osascript stopped by SIGTERM");
-    expect(helperFailure("powershell.exe", Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" }))).toBe("powershell.exe not found");
+    expect(
+      helperFailure(
+        "osascript",
+        Object.assign(new Error("Command failed: osascript -l JavaScript -e\nObjC.import"), {
+          killed: false,
+          signal: "SIGTERM",
+          code: null,
+        }),
+      ),
+    ).toBe("osascript stopped by SIGTERM");
+    expect(
+      helperFailure("powershell.exe", Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" })),
+    ).toBe("powershell.exe not found");
   });
 
   it("reads a helper's answer, and treats anything else as unavailable", () => {
     expect(parseApprovalAnswer("approved\n")).toEqual({ answer: "approved", detail: undefined });
-    expect(parseApprovalAnswer("unavailable Windows Hello is DeviceNotPresent")).toEqual({ answer: "unavailable", detail: "Windows Hello is DeviceNotPresent" });
-    expect(parseApprovalAnswer("#< CLIXML")).toEqual({ answer: "unavailable", detail: "unreadable prompt answer: #< CLIXML" });
+    expect(parseApprovalAnswer("unavailable Windows Hello is DeviceNotPresent")).toEqual({
+      answer: "unavailable",
+      detail: "Windows Hello is DeviceNotPresent",
+    });
+    expect(parseApprovalAnswer("#< CLIXML")).toEqual({
+      answer: "unavailable",
+      detail: "unreadable prompt answer: #< CLIXML",
+    });
   });
 
   it("tells WSL from plain Linux", () => {
@@ -160,7 +233,9 @@ describe("approval settings and platforms", () => {
   });
 
   it("refuses copies on a platform without a prompt", async () => {
-    expect(await hostPromptsFor("linux", () => {}, "/unused").askApproval("x", 1000)).toMatchObject({ answer: "unavailable" });
+    expect(await hostPromptsFor("linux", () => {}, "/unused").askApproval("x", 1000)).toMatchObject({
+      answer: "unavailable",
+    });
   });
 
   it("passes text into PowerShell as base64, never as code", () => {

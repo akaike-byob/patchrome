@@ -21,7 +21,13 @@ export function makeHome(label: string): string {
 }
 
 // Every call is a fresh process, as it is for an agent, and always asks for --json to assert on fields.
-export function runCli(home: string, session: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}, isJson = true): Promise<CliResult> {
+export function runCli(
+  home: string,
+  session: string,
+  args: string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+  isJson = true,
+): Promise<CliResult> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
@@ -45,16 +51,20 @@ export function runCli(home: string, session: string, args: string[], extraEnv: 
 // the test answers instead; the CLI calls reach it over the socket like any other daemon.
 export async function startDaemonAnsweringCopies(home: string, answer: ApprovalAnswer): Promise<{ asked: string[] }> {
   const asked: string[] = [];
-  await runDaemon("stealth", { ...process.env, PATCHROME_HOME: home }, {
-    prompts: {
-      async askApproval(reason) {
-        asked.push(reason);
-        return { answer, detail: undefined };
+  await runDaemon(
+    "stealth",
+    { ...process.env, PATCHROME_HOME: home },
+    {
+      prompts: {
+        async askApproval(reason) {
+          asked.push(reason);
+          return { answer, detail: undefined };
+        },
+        async notify() {},
       },
-      async notify() {},
+      exitProcess: () => {},
     },
-    exitProcess: () => {},
-  });
+  );
   return { asked };
 }
 
@@ -68,7 +78,16 @@ export interface FixtureServer {
 }
 
 export function startFixtureServer(): Promise<FixtureServer> {
-  const pages: Record<string, (url: URL) => { status?: number; body: string; delayMs?: number; contentType?: string; headers?: Record<string, string> }> = {
+  const pages: Record<
+    string,
+    (url: URL) => {
+      status?: number;
+      body: string;
+      delayMs?: number;
+      contentType?: string;
+      headers?: Record<string, string>;
+    }
+  > = {
     "/form": (url) => ({
       body: `<title>form ${url.searchParams.get("name") ?? ""}</title>
         <h1>${url.searchParams.get("name") ?? "form"}</h1>
@@ -108,7 +127,15 @@ export function startFixtureServer(): Promise<FixtureServer> {
     "/popup": () => ({ body: `<title>opener</title><a href="/form?name=popup" target="_blank">Open popup</a>` }),
     "/slow": () => ({ body: "<title>slow</title>finally", delayMs: 5_000 }),
     "/long": () => ({ body: `<title>long</title><pre>${"lorem ipsum ".repeat(600)}</pre>` }),
-    "/api/items": () => ({ contentType: "application/json", body: JSON.stringify({ items: [{ sku: "a1", price: 10 }, { sku: "b2", price: 25 }] }) }),
+    "/api/items": () => ({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          { sku: "a1", price: 10 },
+          { sku: "b2", price: 25 },
+        ],
+      }),
+    }),
     // The page renders whatever /api/items returns, so a mock shows up in the DOM.
     "/shop": () => ({
       body: `<title>shop</title>
@@ -131,7 +158,9 @@ export function startFixtureServer(): Promise<FixtureServer> {
         setTimeout(() => { throw new Error("boom from fixture"); }, 50);
       </script>`,
     }),
-    "/ticker": () => ({ body: `<title>ticker</title><script>let n = 0; setInterval(() => console.log("tick " + n++), 200);</script>` }),
+    "/ticker": () => ({
+      body: `<title>ticker</title><script>let n = 0; setInterval(() => console.log("tick " + n++), 200);</script>`,
+    }),
     "/login": () => ({
       headers: { "set-cookie": "sid=signed-in; Path=/" },
       body: `<title>login</title><script>localStorage.setItem("token", "t-123"); setTimeout(() => location.href = "/form?name=home", 300);</script>`,
@@ -176,10 +205,11 @@ export function startFixtureServer(): Promise<FixtureServer> {
       const port = typeof address === "object" && address ? address.port : 0;
       resolve({
         origin: `http://127.0.0.1:${port}`,
-        close: () => new Promise((done) => {
-          server.closeAllConnections();
-          server.close(() => done());
-        }),
+        close: () =>
+          new Promise((done) => {
+            server.closeAllConnections();
+            server.close(() => done());
+          }),
       });
     });
   });

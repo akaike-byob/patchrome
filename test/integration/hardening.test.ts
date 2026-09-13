@@ -2,7 +2,14 @@ import { existsSync, mkdirSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeHome, runCli, startDaemonAnsweringCopies, startFixtureServer, stopDaemon, type FixtureServer } from "./helpers.ts";
+import {
+  makeHome,
+  runCli,
+  startDaemonAnsweringCopies,
+  startFixtureServer,
+  stopDaemon,
+  type FixtureServer,
+} from "./helpers.ts";
 
 interface TabRow {
   id: string;
@@ -89,7 +96,10 @@ describe("daemon restart and isolation", () => {
   it("keeps an isolated session's cookies apart from the shared profile in both directions", async () => {
     const isolatedLogin = await runCli(home, "iso", ["open", "--isolated", `${fixture.origin}/login`]);
     expect(isolatedLogin.json, isolatedLogin.stderr).toMatchObject({ ok: true });
-    const isolatedCookies = (await runCli(home, "iso", ["cookies"])).json.data?.cookies as Array<{ name: string; value: string }>;
+    const isolatedCookies = (await runCli(home, "iso", ["cookies"])).json.data?.cookies as Array<{
+      name: string;
+      value: string;
+    }>;
     expect(isolatedCookies.map((cookie) => `${cookie.name}=${cookie.value}`)).toEqual(["sid=signed-in"]);
     expect((await runCli(home, "shared", ["cookies"])).json.data?.count).toBe(0);
 
@@ -127,9 +137,13 @@ describe("daemon restart and isolation", () => {
     const tabs = (await runCli(home, "iso", ["tabs"])).json.data?.tabs as TabRow[];
     expect(tabs.map((tab) => tab.id)).toHaveLength(1);
     await runCli(home, "iso", ["eval", "document.cookie = 'only=iso'", "--main-world"]);
-    const isolatedNames = ((await runCli(home, "iso", ["cookies"])).json.data?.cookies as Array<{ name: string }>).map((cookie) => cookie.name);
+    const isolatedNames = ((await runCli(home, "iso", ["cookies"])).json.data?.cookies as Array<{ name: string }>).map(
+      (cookie) => cookie.name,
+    );
     expect(isolatedNames).toContain("only");
-    const sharedNames = ((await runCli(home, "shared", ["cookies"])).json.data?.cookies as Array<{ name: string }>).map((cookie) => cookie.name);
+    const sharedNames = ((await runCli(home, "shared", ["cookies"])).json.data?.cookies as Array<{ name: string }>).map(
+      (cookie) => cookie.name,
+    );
     expect(sharedNames).not.toContain("only");
   });
 });

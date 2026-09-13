@@ -2,7 +2,14 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { chromeUserDataDirFrom, hostBelongsToSite, localStorageOrigins, originOfIndexedDbFolder, resolveChromeProfile, siteFromInput } from "../../src/chrome-profiles.ts";
+import {
+  chromeUserDataDirFrom,
+  hostBelongsToSite,
+  localStorageOrigins,
+  originOfIndexedDbFolder,
+  resolveChromeProfile,
+  siteFromInput,
+} from "../../src/chrome-profiles.ts";
 import { CommandError } from "../../src/protocol.ts";
 
 const profiles = [
@@ -12,10 +19,16 @@ const profiles = [
 
 describe("Chrome profiles", () => {
   it("finds the everyday Chrome user data dir per platform, unless the env names one", () => {
-    expect(chromeUserDataDirFrom({}, "darwin", "/Users/ada")).toBe("/Users/ada/Library/Application Support/Google/Chrome");
+    expect(chromeUserDataDirFrom({}, "darwin", "/Users/ada")).toBe(
+      "/Users/ada/Library/Application Support/Google/Chrome",
+    );
     expect(chromeUserDataDirFrom({}, "linux", "/home/ada")).toBe("/home/ada/.config/google-chrome");
-    expect(chromeUserDataDirFrom({ LOCALAPPDATA: "C:/Users/ada/AppData/Local" }, "win32", "C:/Users/ada")).toBe(join("C:/Users/ada/AppData/Local", "Google", "Chrome", "User Data"));
-    expect(chromeUserDataDirFrom({ PATCHROME_CHROME_USER_DATA_DIR: "/tmp/beta" }, "darwin", "/Users/ada")).toBe("/tmp/beta");
+    expect(chromeUserDataDirFrom({ LOCALAPPDATA: "C:/Users/ada/AppData/Local" }, "win32", "C:/Users/ada")).toBe(
+      join("C:/Users/ada/AppData/Local", "Google", "Chrome", "User Data"),
+    );
+    expect(chromeUserDataDirFrom({ PATCHROME_CHROME_USER_DATA_DIR: "/tmp/beta" }, "darwin", "/Users/ada")).toBe(
+      "/tmp/beta",
+    );
   });
 
   it("resolves --from by menu name, folder or email, case-insensitively, and defaults to the last used profile", () => {
@@ -35,8 +48,16 @@ describe("Chrome profiles", () => {
       }
     })();
     expect(miss).toBeInstanceOf(CommandError);
-    expect((miss as CommandError).hint).toBe(`pass --from with one of: "Ujjwal" (Default, me@gmail.test), "akaiketech.com" (Profile 1, admin@akaiketech.test)`);
-    expect(() => resolveChromeProfile([...profiles, { folder: "Profile 2", name: "Ujjwal", email: undefined }], "ujjwal", undefined)).toThrow("names more than one Chrome profile");
+    expect((miss as CommandError).hint).toBe(
+      `pass --from with one of: "Ujjwal" (Default, me@gmail.test), "akaiketech.com" (Profile 1, admin@akaiketech.test)`,
+    );
+    expect(() =>
+      resolveChromeProfile(
+        [...profiles, { folder: "Profile 2", name: "Ujjwal", email: undefined }],
+        "ujjwal",
+        undefined,
+      ),
+    ).toThrow("names more than one Chrome profile");
   });
 
   it("reads a site from a host or a pasted URL, and matches its subdomains only", () => {
@@ -57,8 +78,18 @@ describe("Chrome profiles", () => {
     expect(originOfIndexedDbFolder("https_app.example.com_0.indexeddb.blob")).toBeUndefined();
 
     const leveldbDir = mkdtempSync(join(tmpdir(), "patchrome-leveldb-"));
-    writeFileSync(join(leveldbDir, "000003.log"), Buffer.concat([Buffer.from([0, 1, 7]), Buffer.from("META:https://app.example.com\u0000\u0008_https://app.example.com\u0000\u0001token"), Buffer.from("META:http://127.0.0.1:9000\u0001")]));
+    writeFileSync(
+      join(leveldbDir, "000003.log"),
+      Buffer.concat([
+        Buffer.from([0, 1, 7]),
+        Buffer.from("META:https://app.example.com\u0000\u0008_https://app.example.com\u0000\u0001token"),
+        Buffer.from("META:http://127.0.0.1:9000\u0001"),
+      ]),
+    );
     writeFileSync(join(leveldbDir, "MANIFEST-000001"), "META:https://ignored.example.com");
-    expect((await localStorageOrigins(leveldbDir)).sort()).toEqual(["http://127.0.0.1:9000", "https://app.example.com"]);
+    expect((await localStorageOrigins(leveldbDir)).toSorted()).toEqual([
+      "http://127.0.0.1:9000",
+      "https://app.example.com",
+    ]);
   });
 });

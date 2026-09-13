@@ -17,7 +17,15 @@ const detectors = [
   { name: "turnstile", url: "https://2captcha.com/demo/cloudflare-turnstile", settleMs: 15000 },
 ];
 
-const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike2-")), { channel: "chrome", headless: false, viewport: null, chromiumSandbox: true, ignoreDefaultArgs: process.argv.includes("--no-automation-flag") ? ["--disable-blink-features=AutomationControlled"] : [] });
+const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike2-")), {
+  channel: "chrome",
+  headless: false,
+  viewport: null,
+  chromiumSandbox: true,
+  ignoreDefaultArgs: process.argv.includes("--no-automation-flag")
+    ? ["--disable-blink-features=AutomationControlled"]
+    : [],
+});
 const firstPage = context.pages()[0];
 const cdp = await context.newCDPSession(firstPage);
 
@@ -29,10 +37,17 @@ const openBackgroundPage = async () => {
 
 let networkEvents = 0;
 if (isBusy) {
-  for (const url of ["https://en.wikipedia.org/wiki/Special:Random", "https://news.ycombinator.com/", "https://example.com/"]) {
+  for (const url of [
+    "https://en.wikipedia.org/wiki/Special:Random",
+    "https://news.ycombinator.com/",
+    "https://example.com/",
+  ]) {
     const page = await openBackgroundPage();
     page.on("request", () => networkEvents++);
-    page.on("response", (response) => { networkEvents++; response.body().catch(() => {}); });
+    page.on("response", (response) => {
+      networkEvents++;
+      response.body().catch(() => {});
+    });
     await page.goto(url).catch((err) => console.log("background tab", url, err.message.split("\n")[0]));
   }
 }
@@ -42,7 +57,10 @@ for (const detector of detectors) {
   const page = await openBackgroundPage();
   if (isBusy) {
     page.on("request", () => networkEvents++);
-    page.on("response", (response) => { networkEvents++; response.body().catch(() => {}); });
+    page.on("response", (response) => {
+      networkEvents++;
+      response.body().catch(() => {});
+    });
   }
   try {
     await page.goto(detector.url, { waitUntil: "domcontentloaded", timeout: 60000 });

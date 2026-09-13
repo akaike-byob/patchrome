@@ -35,7 +35,9 @@ describe("daemon lifecycle", () => {
 
   it("starts exactly one daemon when 3 CLI processes start at once", async () => {
     const results = await Promise.all(
-      ["race-1", "race-2", "race-3"].map((session) => runCli(home, session, ["open", `${fixture.origin}/form?name=${session}`])),
+      ["race-1", "race-2", "race-3"].map((session) =>
+        runCli(home, session, ["open", `${fixture.origin}/form?name=${session}`]),
+      ),
     );
     for (const result of results) expect(result.json, result.stderr).toMatchObject({ ok: true });
 

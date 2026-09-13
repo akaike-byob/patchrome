@@ -8,7 +8,10 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 // Box-drawing and typographic characters render inconsistently across terminals and editors.
 describe("repository text", () => {
   it("is plain ASCII in every tracked or new file", () => {
-    const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: repoRoot, encoding: "utf8" })
+    const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
       .split("\n")
       .filter((path) => path !== "" && path !== "package-lock.json" && !path.endsWith(".png"));
     const offenders = files.flatMap((path) =>

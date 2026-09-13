@@ -6,7 +6,16 @@ import { loadSavedSessions, pruneSessionFolders, saveSessions, sessionRetentionM
 import type { SavedSession } from "../../src/sessions.ts";
 
 const saved: SavedSession[] = [
-  { name: "agent-1", isIsolated: false, label: "checkout flow", currentTabId: "t2", tabs: [{ id: "t1", url: "https://a.test/" }, { id: "t2", url: "about:blank" }] },
+  {
+    name: "agent-1",
+    isIsolated: false,
+    label: "checkout flow",
+    currentTabId: "t2",
+    tabs: [
+      { id: "t1", url: "https://a.test/" },
+      { id: "t2", url: "about:blank" },
+    ],
+  },
   { name: "agent-2", isIsolated: true, label: undefined, currentTabId: undefined, tabs: [] },
 ];
 
@@ -29,7 +38,13 @@ describe("saved sessions", () => {
     expect(await loadSavedSessions(join(dir, "absent.json"), 0)).toEqual([]);
     writeFileSync(join(dir, "corrupt.json"), "{not json");
     expect(await loadSavedSessions(join(dir, "corrupt.json"), 0)).toEqual([]);
-    writeFileSync(join(dir, "mixed.json"), JSON.stringify({ savedAtMs: 0, sessions: [saved[0], { name: "x", isIsolated: false, tabs: [{ id: "tab9", url: "" }] }] }));
+    writeFileSync(
+      join(dir, "mixed.json"),
+      JSON.stringify({
+        savedAtMs: 0,
+        sessions: [saved[0], { name: "x", isIsolated: false, tabs: [{ id: "tab9", url: "" }] }],
+      }),
+    );
     expect(await loadSavedSessions(join(dir, "mixed.json"), 0)).toEqual([saved[0]]);
   });
 

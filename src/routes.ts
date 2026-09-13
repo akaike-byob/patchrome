@@ -54,9 +54,18 @@ export class RouteTable {
     try {
       body = await readFile(file);
     } catch (err) {
-      throw new CommandError("bad_args", `cannot read mock file ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new CommandError(
+        "bad_args",
+        `cannot read mock file ${file}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
-    return this.#add(session, { kind: "mock", glob, file, body, contentType: contentTypes[extname(file).toLowerCase()] ?? "application/octet-stream" });
+    return this.#add(session, {
+      kind: "mock",
+      glob,
+      file,
+      body,
+      contentType: contentTypes[extname(file).toLowerCase()] ?? "application/octet-stream",
+    });
   }
 
   rulesOf(session: string): RouteRule[] {
@@ -66,12 +75,14 @@ export class RouteTable {
   async clear(session: string): Promise<number> {
     const count = this.rulesOf(session).length;
     this.#rules.delete(session);
-    await Promise.all([...(this.#tabsBySession.get(session) ?? [])].map(async (tab) => {
-      const matcher = this.#installed.get(tab.page);
-      if (!matcher) return;
-      this.#installed.delete(tab.page);
-      await tab.page.unroute(matcher).catch(() => {});
-    }));
+    await Promise.all(
+      [...(this.#tabsBySession.get(session) ?? [])].map(async (tab) => {
+        const matcher = this.#installed.get(tab.page);
+        if (!matcher) return;
+        this.#installed.delete(tab.page);
+        await tab.page.unroute(matcher).catch(() => {});
+      }),
+    );
     return count;
   }
 
@@ -90,9 +101,11 @@ export class RouteTable {
     if (this.#installed.has(tab.page)) return;
     const matcher: UrlMatcher = (url) => this.#ruleFor(tab.session, url.href) !== undefined;
     this.#installed.set(tab.page, matcher);
-    await tab.page.route(matcher, (route) => this.#handle(tab.session, route)).catch(() => {
-      this.#installed.delete(tab.page);
-    });
+    await tab.page
+      .route(matcher, (route) => this.#handle(tab.session, route))
+      .catch(() => {
+        this.#installed.delete(tab.page);
+      });
   }
 
   // The newest matching rule wins, so an agent can narrow an earlier broad block with a mock.

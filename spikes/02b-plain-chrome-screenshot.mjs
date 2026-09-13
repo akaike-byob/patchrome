@@ -10,13 +10,17 @@ import { setTimeout as sleep } from "node:timers/promises";
 const [url, outPath, settleMsArg] = process.argv.slice(2);
 const settleMs = Number(settleMsArg ?? 30000);
 const debugPort = 9333;
-const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
-  `--user-data-dir=${mkdtempSync(join(tmpdir(), "plain-chrome-"))}`,
-  `--remote-debugging-port=${debugPort}`,
-  "--no-first-run",
-  "--no-default-browser-check",
-  url,
-], { stdio: "ignore" });
+const chrome = spawn(
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  [
+    `--user-data-dir=${mkdtempSync(join(tmpdir(), "plain-chrome-"))}`,
+    `--remote-debugging-port=${debugPort}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    url,
+  ],
+  { stdio: "ignore" },
+);
 
 await sleep(settleMs);
 const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
@@ -25,17 +29,18 @@ const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
 
 let nextId = 1;
-const send = (method, params = {}) => new Promise((resolve) => {
-  const id = nextId++;
-  const onMessage = (event) => {
-    const message = JSON.parse(event.data);
-    if (message.id !== id) return;
-    socket.removeEventListener("message", onMessage);
-    resolve(message.result);
-  };
-  socket.addEventListener("message", onMessage);
-  socket.send(JSON.stringify({ id, method, params }));
-});
+const send = (method, params = {}) =>
+  new Promise((resolve) => {
+    const id = nextId++;
+    const onMessage = (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== id) return;
+      socket.removeEventListener("message", onMessage);
+      resolve(message.result);
+    };
+    socket.addEventListener("message", onMessage);
+    socket.send(JSON.stringify({ id, method, params }));
+  });
 
 const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: undefined });
 const { cssContentSize } = await send("Page.getLayoutMetrics");

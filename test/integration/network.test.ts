@@ -1,7 +1,14 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeHome, runCli, startDaemonAnsweringCopies, startFixtureServer, stopDaemon, type FixtureServer } from "./helpers.ts";
+import {
+  makeHome,
+  runCli,
+  startDaemonAnsweringCopies,
+  startFixtureServer,
+  stopDaemon,
+  type FixtureServer,
+} from "./helpers.ts";
 
 interface RequestSummary {
   id: string;
@@ -39,10 +46,12 @@ describe("network, routes, extract and state", () => {
 
     const fetches = await runCli(home, "net", ["network", "list", "--type", "fetch"]);
     const requests = fetches.json.data?.requests as RequestSummary[];
-    expect(requests.map((request) => new URL(request.url).pathname).sort()).toEqual(["/api/items", "/api/missing"]);
+    expect(requests.map((request) => new URL(request.url).pathname).toSorted()).toEqual(["/api/items", "/api/missing"]);
 
     const notFound = await runCli(home, "net", ["network", "list", "--status", "4xx"]);
-    expect((notFound.json.data?.requests as RequestSummary[]).map((request) => request.url)).toEqual([`${fixture.origin}/api/missing`]);
+    expect((notFound.json.data?.requests as RequestSummary[]).map((request) => request.url)).toEqual([
+      `${fixture.origin}/api/missing`,
+    ]);
 
     const byUrl = await runCli(home, "net", ["network", "list", "--url", "*/api/items"]);
     const itemsId = (byUrl.json.data?.requests as RequestSummary[])[0]?.id;
@@ -68,7 +77,9 @@ describe("network, routes, extract and state", () => {
     await runCli(home, "har", ["goto", `${fixture.origin}/shop`]);
     await waitForTitle(home, "har", "shop loaded");
     const stopped = await runCli(home, "har", ["network", "har", "stop"]);
-    const har = JSON.parse(readFileSync(String(stopped.json.data?.path), "utf8")) as { log: { entries: Array<{ request: { url: string }; response: { status: number; content: { text?: string } } }> } };
+    const har = JSON.parse(readFileSync(String(stopped.json.data?.path), "utf8")) as {
+      log: { entries: Array<{ request: { url: string }; response: { status: number; content: { text?: string } } }> };
+    };
     const items = har.log.entries.find((entry) => entry.request.url.endsWith("/api/items"));
     expect(items?.response.status).toBe(200);
     expect(items?.response.content.text).toContain("b2");
@@ -102,7 +113,13 @@ describe("network, routes, extract and state", () => {
     await runCli(home, "scrape", ["open", `${fixture.origin}/shop`]);
     await waitForTitle(home, "scrape", "shop loaded");
     const schemaFile = join(home, "schema.json");
-    writeFileSync(schemaFile, JSON.stringify({ rows: "li.item", fields: { sku: "h2", price: ".price", link: { selector: "a", attr: "href" }, missing: ".nope" } }));
+    writeFileSync(
+      schemaFile,
+      JSON.stringify({
+        rows: "li.item",
+        fields: { sku: "h2", price: ".price", link: { selector: "a", attr: "href" }, missing: ".nope" },
+      }),
+    );
     const fromFile = await runCli(home, "scrape", ["extract", schemaFile]);
     expect(fromFile.json.data?.rows).toEqual([
       { sku: "a1", price: "10", link: `${fixture.origin}/form?name=a1`, missing: null },
@@ -117,7 +134,14 @@ describe("network, routes, extract and state", () => {
   });
 
   it("signs in through login --until, then saves and reloads cookies and localStorage", async () => {
-    const login = await runCli(home, "auth", ["login", `${fixture.origin}/login`, "--until", "*/form?name=home", "--timeout-ms", "20000"]);
+    const login = await runCli(home, "auth", [
+      "login",
+      `${fixture.origin}/login`,
+      "--until",
+      "*/form?name=home",
+      "--timeout-ms",
+      "20000",
+    ]);
     expect(login.json).toMatchObject({ ok: true, data: { outcome: "reached", cookieCount: 1 } });
 
     const cookies = await runCli(home, "auth", ["cookies", "--domain", "127.0.0.1"]);
@@ -126,7 +150,9 @@ describe("network, routes, extract and state", () => {
     const stateFile = join(home, "state.json");
     const saved = await runCli(home, "auth", ["state", "save", stateFile]);
     expect(saved.json.data).toMatchObject({ cookies: 1, origins: [fixture.origin] });
-    const state = JSON.parse(readFileSync(stateFile, "utf8")) as { origins: Array<{ localStorage: Array<{ name: string; value: string }> }> };
+    const state = JSON.parse(readFileSync(stateFile, "utf8")) as {
+      origins: Array<{ localStorage: Array<{ name: string; value: string }> }>;
+    };
     expect(state.origins[0]?.localStorage).toContainEqual({ name: "token", value: "t-123" });
 
     await runCli(home, "auth", ["eval", "localStorage.clear()"]);
@@ -134,7 +160,14 @@ describe("network, routes, extract and state", () => {
     expect(loaded.json).toMatchObject({ ok: true, data: { cookies: 1 } });
     expect((await runCli(home, "auth", ["eval", "localStorage.getItem('token')"])).json.data?.value).toBe("t-123");
 
-    const timedOut = await runCli(home, "auth", ["login", `${fixture.origin}/form?name=wait`, "--until", "*/never", "--timeout-ms", "1500"]);
+    const timedOut = await runCli(home, "auth", [
+      "login",
+      `${fixture.origin}/form?name=wait`,
+      "--until",
+      "*/never",
+      "--timeout-ms",
+      "1500",
+    ]);
     expect(timedOut.json.error?.code).toBe("timeout");
   });
 });

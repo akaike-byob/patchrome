@@ -74,21 +74,32 @@ export class PageDiagnostics {
       pushCapped(diagnostics.messages, message, consoleLimitPerSession);
       for (const follower of diagnostics.followers) follower(message);
     });
-    cdp.on("Runtime.exceptionThrown", (event: { exceptionDetails: { text: string; url?: string; lineNumber: number; exception?: RemoteObject; stackTrace?: StackTrace } }) => {
-      const details = event.exceptionDetails;
-      const description = details.exception?.description;
-      const pageError: PageError = {
-        id: `x${this.#nextErrorId++}`,
-        tabId: tab.id,
-        message: (description ?? details.text).split("\n")[0] ?? details.text,
-        stack: description ?? formatStack(details.stackTrace),
-        url: details.url,
-        line: details.lineNumber + 1,
-        atMs: Date.now(),
-      };
-      pushCapped(this.#sessionFor(tab.session).errors, pageError, errorLimitPerSession);
-      this.#onPageError(tab, pageError);
-    });
+    cdp.on(
+      "Runtime.exceptionThrown",
+      (event: {
+        exceptionDetails: {
+          text: string;
+          url?: string;
+          lineNumber: number;
+          exception?: RemoteObject;
+          stackTrace?: StackTrace;
+        };
+      }) => {
+        const details = event.exceptionDetails;
+        const description = details.exception?.description;
+        const pageError: PageError = {
+          id: `x${this.#nextErrorId++}`,
+          tabId: tab.id,
+          message: (description ?? details.text).split("\n")[0] ?? details.text,
+          stack: description ?? formatStack(details.stackTrace),
+          url: details.url,
+          line: details.lineNumber + 1,
+          atMs: Date.now(),
+        };
+        pushCapped(this.#sessionFor(tab.session).errors, pageError, errorLimitPerSession);
+        this.#onPageError(tab, pageError);
+      },
+    );
     await cdp.send("Runtime.enable");
   }
 
@@ -122,7 +133,11 @@ export class PageDiagnostics {
 
 export function parseConsoleLevel(raw: string): ConsoleLevel {
   if (!(consoleLevels as readonly string[]).includes(raw)) {
-    throw new CommandError("bad_args", `--level ${raw} is not a console level`, `use one of ${consoleLevels.join(", ")}; each includes the levels above it`);
+    throw new CommandError(
+      "bad_args",
+      `--level ${raw} is not a console level`,
+      `use one of ${consoleLevels.join(", ")}; each includes the levels above it`,
+    );
   }
   return raw as ConsoleLevel;
 }
@@ -149,7 +164,12 @@ export function renderRemoteObject(object: RemoteObject): string {
 
 function formatStack(stackTrace: StackTrace | undefined): string | undefined {
   if (!stackTrace) return undefined;
-  return stackTrace.callFrames.map((frame) => `    at ${frame.functionName || "<anonymous>"} (${frame.url}:${frame.lineNumber + 1}:${frame.columnNumber + 1})`).join("\n");
+  return stackTrace.callFrames
+    .map(
+      (frame) =>
+        `    at ${frame.functionName || "<anonymous>"} (${frame.url}:${frame.lineNumber + 1}:${frame.columnNumber + 1})`,
+    )
+    .join("\n");
 }
 
 function pushCapped<T>(items: T[], item: T, limit: number): void {

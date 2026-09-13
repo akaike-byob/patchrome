@@ -96,21 +96,38 @@ export function isReplayable(command: CommandName, args: Record<string, unknown>
 const callerFlags = new Set(["json", "session", "profile"]);
 
 export function stepArgv(argv: string[]): string[] {
-  const { tokens } = parseArgs({ args: argv, allowPositionals: true, strict: false, tokens: true, options: cliOptions });
+  const { tokens } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+    options: cliOptions,
+  });
   const dropped = new Set<number>();
   for (const token of tokens) {
     if (token.kind !== "option" || !callerFlags.has(token.name)) continue;
     dropped.add(token.index);
-    if (token.value !== undefined && token.inlineValue === false) dropped.add(token.index + 1);
+    if (token.value !== undefined && !token.inlineValue) dropped.add(token.index + 1);
   }
   return argv.filter((_, index) => !dropped.has(index));
 }
 
 // Replaces the ref, request id and secret text in a step's words with what replays.
-export function replayStep(command: CommandName, argv: string[], hint: ReplayHint | undefined, atMs: number): HistoryStep {
+export function replayStep(
+  command: CommandName,
+  argv: string[],
+  hint: ReplayHint | undefined,
+  atMs: number,
+): HistoryStep {
   const words = stepArgv(argv);
   const notes: string[] = [];
-  const { tokens } = parseArgs({ args: words, allowPositionals: true, strict: false, tokens: true, options: cliOptions });
+  const { tokens } = parseArgs({
+    args: words,
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+    options: cliOptions,
+  });
   const positionals = tokens.filter((token) => token.kind === "positional");
   const valueOf = (name: string) => tokens.find((token) => token.kind === "option" && token.name === name);
   const replacements = new Map<number, string[]>();
@@ -120,7 +137,7 @@ export function replayStep(command: CommandName, argv: string[], hint: ReplayHin
     const refPositional = positionals.find((token) => /^@?(?:f\d+)?e\d+$/.test(token.value));
     if (refOption !== undefined && refOption.kind === "option" && refOption.value !== undefined) {
       replacements.set(refOption.index, hint.refLocator.flags);
-      if (refOption.inlineValue === false) replacements.set(refOption.index + 1, []);
+      if (!refOption.inlineValue) replacements.set(refOption.index + 1, []);
     } else if (refPositional !== undefined) {
       replacements.set(refPositional.index, hint.refLocator.flags);
     }
@@ -134,12 +151,15 @@ export function replayStep(command: CommandName, argv: string[], hint: ReplayHin
   if (hint?.isSecretText === true) {
     const text = positionals.at(-1);
     if (text !== undefined) replacements.set(text.index, [secretPlaceholder]);
-    notes.push(`the text went into a password field and was not recorded: the sh script reads $PATCHROME_SECRET, jsonl carries ${secretPlaceholder} to replace`);
+    notes.push(
+      `the text went into a password field and was not recorded: the sh script reads $PATCHROME_SECRET, jsonl carries ${secretPlaceholder} to replace`,
+    );
   }
   switch (command) {
     case "switch":
     case "close":
-      if (positionals.some((token) => /^t\d+$/.test(token.value))) notes.push("tab ids from the recording can differ on replay");
+      if (positionals.some((token) => /^t\d+$/.test(token.value)))
+        notes.push("tab ids from the recording can differ on replay");
       break;
     case "login":
       notes.push("waits for a person to sign in");
@@ -179,7 +199,14 @@ export function locatorForRef(snapshot: string, ref: string): { flags: string[];
     const refs = [...line.matchAll(/\[ref=((?:f\d+)?e\d+)\]/g)].map((match) => match[1] ?? "");
     const match = line.match(snapshotLinePattern);
     if (refs.length === 0 || !match?.[1]) return [];
-    return [{ ref: refs[0] ?? "", frame: frameOfRef(refs[0] ?? ""), role: match[1], name: match[2] === undefined ? undefined : unescapeName(match[2]) }];
+    return [
+      {
+        ref: refs[0] ?? "",
+        frame: frameOfRef(refs[0] ?? ""),
+        role: match[1],
+        name: match[2] === undefined ? undefined : unescapeName(match[2]),
+      },
+    ];
   });
   const node = nodes.find((candidate) => candidate.ref === ref);
   if (node === undefined) return undefined;
@@ -187,14 +214,17 @@ export function locatorForRef(snapshot: string, ref: string): { flags: string[];
   const notes: string[] = [];
   const flags = ["--role", node.role];
   // Without a name, getByRole matches every node of the role, named or not.
-  const peers = node.name === undefined
-    ? sameFrame.filter((candidate) => candidate.role === node.role)
-    : sameFrame.filter((candidate) => candidate.role === node.role && candidate.name === node.name);
+  const peers =
+    node.name === undefined
+      ? sameFrame.filter((candidate) => candidate.role === node.role)
+      : sameFrame.filter((candidate) => candidate.role === node.role && candidate.name === node.name);
   if (node.name !== undefined) flags.push("--name", node.name, "--exact");
   if (peers.length > 1) {
     const nth = peers.findIndex((candidate) => candidate.ref === ref);
     flags.push("--nth", String(nth));
-    notes.push(`${peers.length} elements matched ${node.role}${node.name === undefined ? "" : ` "${node.name}"`}; --nth ${nth} is its position in the recorded page`);
+    notes.push(
+      `${peers.length} elements matched ${node.role}${node.name === undefined ? "" : ` "${node.name}"`}; --nth ${nth} is its position in the recorded page`,
+    );
   } else if (node.name === undefined) {
     notes.push(`${node.role} has no accessible name; the locator matches the only ${node.role} on the recorded page`);
   }
@@ -244,10 +274,18 @@ export async function clearHistory(path: string): Promise<void> {
   await rm(path, { force: true });
 }
 
-export function formatHistory(steps: HistoryStep[], format: HistoryFormat, { session, profile }: { session: string; profile: string }): string {
+export function formatHistory(
+  steps: HistoryStep[],
+  format: HistoryFormat,
+  { session, profile }: { session: string; profile: string },
+): string {
   switch (format) {
     case "jsonl":
-      return steps.map((step) => JSON.stringify(step.notes.length === 0 ? { argv: step.argv } : { argv: step.argv, notes: step.notes })).join("\n");
+      return steps
+        .map((step) =>
+          JSON.stringify(step.notes.length === 0 ? { argv: step.argv } : { argv: step.argv, notes: step.notes }),
+        )
+        .join("\n");
     case "sh": {
       const first = steps[0];
       const last = steps.at(-1);
@@ -262,7 +300,10 @@ export function formatHistory(steps: HistoryStep[], format: HistoryFormat, { ses
         ...(profile === "stealth" ? [] : [`export PATCHROME_PROFILE="\${PATCHROME_PROFILE:-${profile}}"`]),
         "",
       ];
-      const body = steps.flatMap((step) => [...step.notes.map((note) => `# check: ${note}`), ["patchrome", ...step.argv].map(shellWord).join(" ")]);
+      const body = steps.flatMap((step) => [
+        ...step.notes.map((note) => `# check: ${note}`),
+        ["patchrome", ...step.argv].map(shellWord).join(" "),
+      ]);
       return [...header, ...body, "patchrome session close"].join("\n");
     }
   }

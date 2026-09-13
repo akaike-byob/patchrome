@@ -2,13 +2,14 @@
   "name": "patchrome",
   "version": "0.1.0",
   "description": "Stealth shared-browser CLI for coding agents: one Patchright Chrome, a tab set per agent session",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./package.json": "./package.json"
+  "homepage": "https://github.com/akaike-byob/patchrome#readme",
+  "bugs": {
+    "url": "https://github.com/akaike-byob/patchrome/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akaike-byob/patchrome.git"
   },
   "bin": {
     "patchrome": "bin/patchrome.js"
@@ -22,8 +23,13 @@
     "README.md",
     "LICENSE"
   ],
-  "engines": {
-    "node": ">=24.2"
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -31,24 +37,24 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
-  "license": "MIT",
   "dependencies": {
     "patchright": "^1.63.0",
     "zod": "^4.6.4"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/akaike-byob/patchrome.git"
-  },
-  "homepage": "https://github.com/akaike-byob/patchrome#readme",
-  "bugs": {
-    "url": "https://github.com/akaike-byob/patchrome/issues"
+  "engines": {
+    "node": ">=24.2"
   }
 }

@@ -12,6 +12,7 @@ const compiled = new Map<string, RegExp>();
 function globToRegExp(glob: string): RegExp {
   let pattern = compiled.get(glob);
   if (!pattern) {
+    // oxlint-disable-next-line typescript/no-misused-spread -- code points are the unit a glob's ? matches
     const source = [...glob]
       .map((char) => (char === "*" ? ".*" : char === "?" ? "." : char.replace(/[.+^${}()|[\]\\]/g, "\\$&")))
       .join("");

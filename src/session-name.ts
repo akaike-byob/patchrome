@@ -9,7 +9,21 @@ export interface ProcessInfo {
 
 export type ProcessLookup = (pid: number) => ProcessInfo | undefined;
 
-const shellCommands = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "nu", "env", "node", "npx", "npm", "pnpm", "bun"]);
+const shellCommands = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash",
+  "ksh",
+  "nu",
+  "env",
+  "node",
+  "npx",
+  "npm",
+  "pnpm",
+  "bun",
+]);
 
 // Claude Code and Codex run each tool call in a fresh shell, so the direct parent pid changes per command.
 // The first ancestor that is not a shell or a Node launcher is the agent or terminal, and outlives the call.
