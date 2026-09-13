@@ -41,9 +41,16 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run test:integration
-      - if: failure()
-        run: for f in "${TMPDIR:-/tmp}"/patchrome-*/*/daemon.log; do echo "=== $f"; cat "$f"; done
+      - run: |
+          fails=0
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if ! npx vitest run test/integration/hardening.test.ts > "run-$i.txt" 2>&1; then
+              fails=$((fails+1)); echo "=== run $i failed"; grep -E "×|Error" "run-$i.txt"
+              for f in "$TMPDIR"/patchrome-hardening-*/stealth/daemon.log; do echo "--- $f"; cat "$f"; done
+            else echo "=== run $i passed"; fi
+            rm -rf "$TMPDIR"/patchrome-*
+          done
+          echo "failures: $fails"
 
   secrets:
     name: Secret scan

@@ -194,9 +194,10 @@ export class PatchrightEngine implements BrowserEngine {
     const context = this.#requireContext();
     const marker = `about:blank#patchrome-${randomUUID()}`;
     const pagePromise = context.waitForEvent("page", {
-      predicate: (page) => page.url() === marker,
+      predicate: (page) => { process.stdout.write(`${new Date().toISOString()} PAGEEVENT want=${marker} got=${page.url()}\n`); return page.url() === marker; },
       timeout: pageOpenTimeoutMs,
     });
+    process.stdout.write(`${new Date().toISOString()} CREATETARGET ${marker}\n`);
     await this.#requireBrowserCdp().send("Target.createTarget", {
       url: marker,
       background: isBackground,
