@@ -91,10 +91,12 @@ export class CopyGuard {
   }
 
   async #decide(request: CopyRequest): Promise<{ decision: CopyDecision; detail: string | undefined }> {
-    const { answer: decision, detail } = await this.#options.prompts.askApproval(approvalReason(request), approvalTimeoutMs).catch((err: unknown) => ({
-      answer: "unavailable" as const,
-      detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
-    }));
+    const { answer: decision, detail } = await this.#options.prompts
+      .askApproval(approvalReason(request), approvalTimeoutMs)
+      .catch((err: unknown) => ({
+        answer: "unavailable" as const,
+        detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
+      }));
     // Fails the command when the record cannot be written: an unrecorded copy is what the log exists to prevent.
     await this.#record(request, decision, detail);
     await this.#notify(request, decision);
@@ -123,7 +125,8 @@ export class CopyGuard {
   // A person who just answered the prompt already knows; everything else gets a notification.
   async #notify(request: CopyRequest, decision: CopyDecision): Promise<void> {
     if (!shouldNotify(decision)) return;
-    await this.#options.prompts.notify(`patchrome copy ${decision.replace("_", " ")}`, `${request.session}: ${describeCopy(request)}`)
+    await this.#options.prompts
+      .notify(`patchrome copy ${decision.replace("_", " ")}`, `${request.session}: ${describeCopy(request)}`)
       .catch((err: unknown) => this.#options.log(`copy notification failed: ${String(err).split("\n")[0]}`));
   }
 }
@@ -141,7 +144,10 @@ export function shouldNotify(decision: CopyDecision): boolean {
 }
 
 export function describeCopy(request: CopyRequest): string {
-  const counts = [plural(request.cookies, "cookie"), ...(request.origins.length === 0 ? [] : [`storage for ${plural(request.origins.length, "origin")}`])].join(" and ");
+  const counts = [
+    plural(request.cookies, "cookie"),
+    ...(request.origins.length === 0 ? [] : [`storage for ${plural(request.origins.length, "origin")}`]),
+  ].join(" and ");
   const what = request.site === undefined ? counts : `the ${request.site} login (${counts})`;
   switch (request.kind) {
     case "state-import":

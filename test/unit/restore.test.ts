@@ -31,7 +31,8 @@ function contextOpening(pagesBeforeFailure: number) {
   const opened: FakePage[] = [];
   const engine = {
     async openBackgroundPage() {
-      if (opened.length === pagesBeforeFailure) throw new Error("browserContext.waitForEvent: Timeout 15000ms exceeded");
+      if (opened.length === pagesBeforeFailure)
+        throw new Error("browserContext.waitForEvent: Timeout 15000ms exceeded");
       const page = new FakePage();
       opened.push(page);
       return page;

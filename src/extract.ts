@@ -1,18 +1,25 @@
 import { z } from "zod";
 import { parseJsonInput } from "./validate.ts";
 
-const fieldSpecSchema = z.union([
-  z.string().transform((selector) => ({ selector, attr: undefined, all: false })),
-  z.strictObject({
-    selector: z.string().optional(),
-    attr: z.string().optional(),
-    all: z.boolean().optional(),
-  }).transform(({ selector, attr, all }) => ({ selector, attr, all: all === true })),
-], { error: "must be a selector string or an object with selector, attr, all" });
+const fieldSpecSchema = z.union(
+  [
+    z.string().transform((selector) => ({ selector, attr: undefined, all: false })),
+    z
+      .strictObject({
+        selector: z.string().optional(),
+        attr: z.string().optional(),
+        all: z.boolean().optional(),
+      })
+      .transform(({ selector, attr, all }) => ({ selector, attr, all: all === true })),
+  ],
+  { error: "must be a selector string or an object with selector, attr, all" },
+);
 
 const extractSchemaSchema = z.strictObject({
   rows: z.string().min(1, "must be a CSS selector string").optional(),
-  fields: z.record(z.string(), fieldSpecSchema).refine((fields) => Object.keys(fields).length > 0, "needs at least one field"),
+  fields: z
+    .record(z.string(), fieldSpecSchema)
+    .refine((fields) => Object.keys(fields).length > 0, "needs at least one field"),
   limit: z.int().positive().optional(),
 });
 

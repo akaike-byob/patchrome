@@ -54,7 +54,11 @@ export async function runPipe({ input, output, runner, isBail }: PipeOptions): P
       }
     } catch (err) {
       hasFailed = true;
-      write({ id, ok: false, error: (err instanceof CommandError ? err : new CommandError("bad_args", String(err))).toBody() });
+      write({
+        id,
+        ok: false,
+        error: (err instanceof CommandError ? err : new CommandError("bad_args", String(err))).toBody(),
+      });
       continue;
     }
 

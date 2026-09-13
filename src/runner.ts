@@ -2,9 +2,7 @@ import { localActionData, parseCli } from "./cli.ts";
 import { DaemonConnection } from "./client.ts";
 import { CommandError, type DaemonStreamLine, type ErrorBody } from "./protocol.ts";
 
-export type RunResult =
-  | { ok: true; data: Record<string, unknown> }
-  | { ok: false; error: ErrorBody };
+export type RunResult = { ok: true; data: Record<string, unknown> } | { ok: false; error: ErrorBody };
 
 export interface RunOptions {
   onStream?: (stream: DaemonStreamLine["stream"]) => void;
@@ -37,7 +35,10 @@ export class CommandRunner {
   isStreaming(argv: string[]): boolean {
     try {
       const parsed = parseCli(argv, this.#env, this.#sessionFallback);
-      return !("kind" in parsed) && (parsed.command === "watch" || (parsed.command === "console" && parsed.args.follow === true));
+      return (
+        !("kind" in parsed) &&
+        (parsed.command === "watch" || (parsed.command === "console" && parsed.args.follow === true))
+      );
     } catch {
       return false;
     }
@@ -50,7 +51,11 @@ export class CommandRunner {
         switch (parsed.kind) {
           case "completions":
           case "pipe":
-            throw new CommandError("bad_args", `${parsed.kind} runs only as its own command`, `run \`patchrome ${parsed.kind === "pipe" ? "pipe" : "completions zsh"}\` from a shell`);
+            throw new CommandError(
+              "bad_args",
+              `${parsed.kind} runs only as its own command`,
+              `run \`patchrome ${parsed.kind === "pipe" ? "pipe" : "completions zsh"}\` from a shell`,
+            );
           case "logs":
           case "audit":
           case "create-profile":
@@ -58,7 +63,11 @@ export class CommandRunner {
             return { ok: true, data: (await localActionData(parsed)).fields };
         }
       }
-      const response = await this.#connectionFor(parsed.profile).request({ ...parsed, argv, onStream: options.onStream });
+      const response = await this.#connectionFor(parsed.profile).request({
+        ...parsed,
+        argv,
+        onStream: options.onStream,
+      });
       return response.ok ? { ok: true, data: response.data.fields } : { ok: false, error: response.error };
     } catch (err) {
       return { ok: false, error: toCommandError(err).toBody() };
@@ -81,5 +90,7 @@ export class CommandRunner {
 }
 
 export function toCommandError(err: unknown): CommandError {
-  return err instanceof CommandError ? err : new CommandError("bad_args", err instanceof Error ? err.message : String(err));
+  return err instanceof CommandError
+    ? err
+    : new CommandError("bad_args", err instanceof Error ? err.message : String(err));
 }

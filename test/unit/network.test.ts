@@ -40,16 +40,25 @@ describe("parseStatusFilter", () => {
 
 describe("parseExtractSchema", () => {
   it("normalises string and object fields", () => {
-    expect(parseExtractSchema('{"rows": "li", "fields": {"a": "h2", "b": {"attr": "href", "all": true}}, "limit": 5}')).toEqual({
+    expect(
+      parseExtractSchema('{"rows": "li", "fields": {"a": "h2", "b": {"attr": "href", "all": true}}, "limit": 5}'),
+    ).toEqual({
       rows: "li",
       limit: 5,
-      fields: { a: { selector: "h2", attr: undefined, all: false }, b: { selector: undefined, attr: "href", all: true } },
+      fields: {
+        a: { selector: "h2", attr: undefined, all: false },
+        b: { selector: undefined, attr: "href", all: true },
+      },
     });
   });
 
   it("names the typo", () => {
-    expect(errorOf(() => parseExtractSchema('{"row": "li", "fields": {"a": "h2"}}'))?.message).toContain("unknown keys row");
-    expect(errorOf(() => parseExtractSchema('{"fields": {"a": {"selecter": "h2"}}}'))?.message).toBe("extract schema: fields.a has unknown keys selecter");
+    expect(errorOf(() => parseExtractSchema('{"row": "li", "fields": {"a": "h2"}}'))?.message).toContain(
+      "unknown keys row",
+    );
+    expect(errorOf(() => parseExtractSchema('{"fields": {"a": {"selecter": "h2"}}}'))?.message).toBe(
+      "extract schema: fields.a has unknown keys selecter",
+    );
     expect(errorOf(() => parseExtractSchema('{"fields": {}}'))?.code).toBe("bad_args");
     expect(errorOf(() => parseExtractSchema("li.item"))?.code).toBe("bad_args");
   });
@@ -57,16 +66,35 @@ describe("parseExtractSchema", () => {
 
 describe("parseStorageState", () => {
   it("accepts Playwright's storageState shape", () => {
-    const state = parseStorageState(JSON.stringify({
-      cookies: [{ name: "sid", value: "1", domain: "a.test", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }],
-      origins: [{ origin: "https://a.test", localStorage: [{ name: "k", value: "v" }] }],
-    }));
+    const state = parseStorageState(
+      JSON.stringify({
+        cookies: [
+          {
+            name: "sid",
+            value: "1",
+            domain: "a.test",
+            path: "/",
+            expires: -1,
+            httpOnly: true,
+            secure: false,
+            sameSite: "Lax",
+          },
+        ],
+        origins: [{ origin: "https://a.test", localStorage: [{ name: "k", value: "v" }] }],
+      }),
+    );
     expect(state.cookies).toHaveLength(1);
   });
 
   it("rejects origins that are not bare http origins", () => {
-    expect(errorOf(() => parseStorageState('{"cookies": [], "origins": [{"origin": "https://a.test/path", "localStorage": []}]}'))?.code).toBe("bad_args");
-    expect(errorOf(() => parseStorageState('{"cookies": [{"name": "x"}], "origins": []}'))?.message).toBe("state file: cookies.0.value Invalid input: expected string, received undefined");
+    expect(
+      errorOf(() =>
+        parseStorageState('{"cookies": [], "origins": [{"origin": "https://a.test/path", "localStorage": []}]}'),
+      )?.code,
+    ).toBe("bad_args");
+    expect(errorOf(() => parseStorageState('{"cookies": [{"name": "x"}], "origins": []}'))?.message).toBe(
+      "state file: cookies.0.value Invalid input: expected string, received undefined",
+    );
   });
 });
 
@@ -86,13 +114,27 @@ describe("buildHar", () => {
     statusText: "OK",
     responseHeaders: { "content-type": "application/json" },
     durationMs: 50,
-    timing: { startTime: 0, domainLookupStart: 1, domainLookupEnd: 3, connectStart: 3, secureConnectionStart: 5, connectEnd: 9, requestStart: 10, responseStart: 30, responseEnd: 42 },
+    timing: {
+      startTime: 0,
+      domainLookupStart: 1,
+      domainLookupEnd: 3,
+      connectStart: 3,
+      secureConnectionStart: 5,
+      connectEnd: 9,
+      requestStart: 10,
+      responseStart: 30,
+      responseEnd: 42,
+    },
     failure: undefined,
     ...overrides,
   });
 
   it("builds entries with query, post data, body and timings, skipping pending requests", () => {
-    const har = buildHar([entry({}), entry({ id: "n2", state: "pending" })], new Map([["n1", { text: '{"ok":true}', encoding: undefined }]]), "0.1.0");
+    const har = buildHar(
+      [entry({}), entry({ id: "n2", state: "pending" })],
+      new Map([["n1", { text: '{"ok":true}', encoding: undefined }]]),
+      "0.1.0",
+    );
     expect(har.log.entries).toHaveLength(1);
     const [first] = har.log.entries;
     expect(first?.request.queryString).toEqual([{ name: "q", value: "1" }]);
@@ -100,11 +142,24 @@ describe("buildHar", () => {
     expect(first?.response.content).toEqual({ size: 11, mimeType: "application/json", text: '{"ok":true}' });
     expect(first?.timings).toEqual({ blocked: -1, dns: 2, connect: 6, ssl: 4, send: 0, wait: 20, receive: 12 });
     expect(first?.time).toBe(40);
-    expect(har.log.pages).toEqual([{ startedDateTime: "2026-09-13T09:00:00.000Z", id: "t1", title: "t1", pageTimings: {} }]);
+    expect(har.log.pages).toEqual([
+      { startedDateTime: "2026-09-13T09:00:00.000Z", id: "t1", title: "t1", pageTimings: {} },
+    ]);
   });
 
   it("gives reused connections -1 for dns and connect", () => {
-    expect(harTimings({ startTime: 0, domainLookupStart: -1, domainLookupEnd: -1, connectStart: -1, secureConnectionStart: -1, connectEnd: -1, requestStart: 0, responseStart: 8, responseEnd: 9 }).phases)
-      .toMatchObject({ dns: -1, connect: -1, ssl: -1, wait: 8, receive: 1 });
+    expect(
+      harTimings({
+        startTime: 0,
+        domainLookupStart: -1,
+        domainLookupEnd: -1,
+        connectStart: -1,
+        secureConnectionStart: -1,
+        connectEnd: -1,
+        requestStart: 0,
+        responseStart: 8,
+        responseEnd: 9,
+      }).phases,
+    ).toMatchObject({ dns: -1, connect: -1, ssl: -1, wait: 8, receive: 1 });
   });
 });

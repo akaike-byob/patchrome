@@ -8,7 +8,11 @@ export function parseJsonInput<T extends z.ZodType>(schema: T, raw: string, what
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new CommandError("bad_args", `${what} is not JSON: ${err instanceof Error ? err.message : String(err)}`, hint);
+    throw new CommandError(
+      "bad_args",
+      `${what} is not JSON: ${err instanceof Error ? err.message : String(err)}`,
+      hint,
+    );
   }
   return parseInput(schema, parsed, what, hint);
 }

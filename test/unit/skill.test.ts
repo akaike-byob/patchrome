@@ -38,7 +38,10 @@ describe("published skills", () => {
     const frontmatter = frontmatterOf(markdown);
     const referencesDir = `${skillDir}references/`;
     const referenceNames = existsSync(referencesDir) ? readdirSync(referencesDir) : [];
-    const references = referenceNames.map((name) => ({ name, markdown: readFileSync(`${referencesDir}${name}`, "utf8") }));
+    const references = referenceNames.map((name) => ({
+      name,
+      markdown: readFileSync(`${referencesDir}${name}`, "utf8"),
+    }));
     const everything = [markdown, ...references.map((reference) => reference.markdown)].join("\n");
 
     it(`${skillName} has the frontmatter the skills CLI requires`, () => {
@@ -49,7 +52,9 @@ describe("published skills", () => {
     });
 
     it(`${skillName} keeps SKILL.md within ${skillBodyBudgetBytes} bytes`, () => {
-      expect(Buffer.byteLength(markdown.replace(/^---\n[\s\S]*?\n---\n/, ""))).toBeLessThanOrEqual(skillBodyBudgetBytes);
+      expect(Buffer.byteLength(markdown.replace(/^---\n[\s\S]*?\n---\n/, ""))).toBeLessThanOrEqual(
+        skillBodyBudgetBytes,
+      );
     });
 
     it(`${skillName} links every reference from SKILL.md, one level deep`, () => {
@@ -75,7 +80,10 @@ describe("published skills", () => {
 
     it(`${skillName} documents every CLI command`, () => {
       // `network-list` is typed `network list`; `devtools-url` is one word on the command line too.
-      const cliWords = new Set([...commandNames.map((name) => (name === "devtools-url" ? name : name.split("-")[0])), "pipe"]);
+      const cliWords = new Set([
+        ...commandNames.map((name) => (name === "devtools-url" ? name : name.split("-")[0])),
+        "pipe",
+      ]);
       for (const word of cliWords) expect(everything, word).toMatch(new RegExp(`\`${word}[ \`\\\\]`));
     });
   }

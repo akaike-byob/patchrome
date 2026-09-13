@@ -13,18 +13,32 @@ export interface ChromeProfile {
 
 // Where the everyday Google Chrome keeps its profiles. PATCHROME_CHROME_USER_DATA_DIR points elsewhere,
 // for Chrome Beta or a test profile.
-export function chromeUserDataDirFrom(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform, home = homedir()): string {
+export function chromeUserDataDirFrom(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string {
   if (env.PATCHROME_CHROME_USER_DATA_DIR !== undefined) return env.PATCHROME_CHROME_USER_DATA_DIR;
   if (platform === "darwin") return join(home, "Library", "Application Support", "Google", "Chrome");
-  if (platform === "win32") return join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "Google", "Chrome", "User Data");
+  if (platform === "win32")
+    return join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "Google", "Chrome", "User Data");
   return join(home, ".config", "google-chrome");
 }
 
-export async function listChromeProfiles(userDataDir: string): Promise<{ profiles: ChromeProfile[]; lastUsedFolder: string | undefined }> {
+export async function listChromeProfiles(
+  userDataDir: string,
+): Promise<{ profiles: ChromeProfile[]; lastUsedFolder: string | undefined }> {
   const raw = await readFile(join(userDataDir, "Local State"), "utf8").catch(() => {
-    throw new CommandError("bad_args", `no Chrome profiles found in ${userDataDir}`, "set PATCHROME_CHROME_USER_DATA_DIR to the Chrome user data dir");
+    throw new CommandError(
+      "bad_args",
+      `no Chrome profiles found in ${userDataDir}`,
+      "set PATCHROME_CHROME_USER_DATA_DIR to the Chrome user data dir",
+    );
   });
-  const profileState = ((JSON.parse(raw) as Record<string, unknown>).profile ?? {}) as { info_cache?: Record<string, { name?: string; user_name?: string }>; last_used?: string };
+  const profileState = ((JSON.parse(raw) as Record<string, unknown>).profile ?? {}) as {
+    info_cache?: Record<string, { name?: string; user_name?: string }>;
+    last_used?: string;
+  };
   const profiles = Object.entries(profileState.info_cache ?? {}).map(([folder, info]) => ({
     folder,
     name: info.name ?? folder,
@@ -34,13 +48,28 @@ export async function listChromeProfiles(userDataDir: string): Promise<{ profile
 }
 
 // Accepts what a person sees or knows: the menu name, the folder, or the signed-in email.
-export function resolveChromeProfile(profiles: ChromeProfile[], from: string | undefined, lastUsedFolder: string | undefined): ChromeProfile {
+export function resolveChromeProfile(
+  profiles: ChromeProfile[],
+  from: string | undefined,
+  lastUsedFolder: string | undefined,
+): ChromeProfile {
   const wanted = (from ?? lastUsedFolder ?? "Default").toLowerCase();
-  const matches = profiles.filter((profile) => [profile.folder, profile.name, profile.email].some((candidate) => candidate?.toLowerCase() === wanted));
+  const matches = profiles.filter((profile) =>
+    [profile.folder, profile.name, profile.email].some((candidate) => candidate?.toLowerCase() === wanted),
+  );
   const choices = profiles.map(describeChromeProfile).join(", ");
   if (matches.length === 1 && matches[0] !== undefined) return matches[0];
-  if (matches.length > 1) throw new CommandError("bad_args", `${from} names more than one Chrome profile: ${choices}`, "pass the folder name with --from");
-  throw new CommandError("bad_args", `no Chrome profile named ${from ?? wanted}`, `pass --from with one of: ${choices}`);
+  if (matches.length > 1)
+    throw new CommandError(
+      "bad_args",
+      `${from} names more than one Chrome profile: ${choices}`,
+      "pass the folder name with --from",
+    );
+  throw new CommandError(
+    "bad_args",
+    `no Chrome profile named ${from ?? wanted}`,
+    `pass --from with one of: ${choices}`,
+  );
 }
 
 export function describeChromeProfile(profile: ChromeProfile): string {
@@ -50,8 +79,11 @@ export function describeChromeProfile(profile: ChromeProfile): string {
 // A site is a host name; a pasted URL keeps only its host.
 export function siteFromInput(input: string): string {
   const trimmed = input.trim().toLowerCase();
-  const host = /^[a-z][a-z0-9+.-]*:\/\//.test(trimmed) ? new URL(trimmed).hostname : trimmed.replace(/^\./, "").split("/")[0] ?? "";
-  if (!/^[a-z0-9][a-z0-9.-]*$/.test(host)) throw new CommandError("bad_args", `${input} is not a site`, "pass a host such as github.com");
+  const host = /^[a-z][a-z0-9+.-]*:\/\//.test(trimmed)
+    ? new URL(trimmed).hostname
+    : (trimmed.replace(/^\./, "").split("/")[0] ?? "");
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(host))
+    throw new CommandError("bad_args", `${input} is not a site`, "pass a host such as github.com");
   return host;
 }
 
@@ -63,7 +95,11 @@ export function hostBelongsToSite(host: string, site: string): boolean {
 // Copies only what a login lives in: the cookie jar, localStorage, and the site's own IndexedDB. The copy is
 // what Chrome opens, so the everyday profile is never locked or written. Returns the site's origins that hold
 // localStorage or IndexedDB.
-export async function copySiteLoginStorage(profileDir: string, site: string, copyUserDataDir: string): Promise<string[]> {
+export async function copySiteLoginStorage(
+  profileDir: string,
+  site: string,
+  copyUserDataDir: string,
+): Promise<string[]> {
   const source = (name: string) => join(profileDir, name);
   const target = join(copyUserDataDir, "Default");
   await mkdir(target, { recursive: true });
@@ -72,7 +108,9 @@ export async function copySiteLoginStorage(profileDir: string, site: string, cop
   const origins = new Set<string>();
 
   for (const name of ["Cookies", "Cookies-journal"]) await cp(source(name), join(target, name)).catch(ignoreMissing);
-  await cp(source("Local Storage"), join(target, "Local Storage"), { recursive: true, filter: skipLock }).catch(ignoreMissing);
+  await cp(source("Local Storage"), join(target, "Local Storage"), { recursive: true, filter: skipLock }).catch(
+    ignoreMissing,
+  );
   for (const origin of await localStorageOrigins(join(target, "Local Storage", "leveldb"))) {
     if (hostBelongsToSite(new URL(origin).hostname, site)) origins.add(origin);
   }
@@ -81,18 +119,29 @@ export async function copySiteLoginStorage(profileDir: string, site: string, cop
     const origin = originOfIndexedDbFolder(folder);
     if (origin === undefined || !hostBelongsToSite(new URL(origin).hostname, site)) continue;
     origins.add(origin);
-    await cp(join(source("IndexedDB"), folder), join(target, "IndexedDB", folder), { recursive: true, filter: skipLock });
+    await cp(join(source("IndexedDB"), folder), join(target, "IndexedDB", folder), {
+      recursive: true,
+      filter: skipLock,
+    });
   }
 
   // Newer Chrome files IndexedDB under numbered storage buckets, listed in the QuotaManager database.
   await mkdir(join(target, "WebStorage"), { recursive: true });
-  const hasQuotaManager = await cp(source("WebStorage/QuotaManager"), join(target, "WebStorage", "QuotaManager")).then(() => true, () => false);
+  const hasQuotaManager = await cp(source("WebStorage/QuotaManager"), join(target, "WebStorage", "QuotaManager")).then(
+    () => true,
+    () => false,
+  );
   if (hasQuotaManager) {
-    await cp(source("WebStorage/QuotaManager-journal"), join(target, "WebStorage", "QuotaManager-journal")).catch(ignoreMissing);
+    await cp(source("WebStorage/QuotaManager-journal"), join(target, "WebStorage", "QuotaManager-journal")).catch(
+      ignoreMissing,
+    );
     for (const { bucketId, origin } of await bucketOrigins(join(target, "WebStorage", "QuotaManager"))) {
       if (!hostBelongsToSite(new URL(origin).hostname, site)) continue;
       origins.add(origin);
-      await cp(source(`WebStorage/${bucketId}`), join(target, "WebStorage", String(bucketId)), { recursive: true, filter: skipLock }).catch(ignoreMissing);
+      await cp(source(`WebStorage/${bucketId}`), join(target, "WebStorage", String(bucketId)), {
+        recursive: true,
+        filter: skipLock,
+      }).catch(ignoreMissing);
     }
   }
   return [...origins].toSorted();

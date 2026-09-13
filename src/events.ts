@@ -29,10 +29,18 @@ export function parseWatchEventKinds(raw: string | undefined, mode: ProfileMode)
   const kinds = raw.split(",").map((part) => part.trim());
   for (const kind of kinds) {
     if (!(watchEventKinds as readonly string[]).includes(kind)) {
-      throw new CommandError("bad_args", `--events ${kind} is not an event`, `use any of ${watchEventKinds.join(", ")}`);
+      throw new CommandError(
+        "bad_args",
+        `--events ${kind} is not an event`,
+        `use any of ${watchEventKinds.join(", ")}`,
+      );
     }
     if (!(available as readonly string[]).includes(kind)) {
-      throw new CommandError("unsupported_in_stealth", `watch --events ${kind} needs a debug profile`, "stealth profiles keep Runtime off so sites cannot detect them; run with --profile debug");
+      throw new CommandError(
+        "unsupported_in_stealth",
+        `watch --events ${kind} needs a debug profile`,
+        "stealth profiles keep Runtime off so sites cannot detect them; run with --profile debug",
+      );
     }
   }
   return kinds as WatchEventKind[];
@@ -78,7 +86,19 @@ export function watchEventFields(event: WatchEvent): Record<string, unknown> {
       return { kind: event.kind, tab: event.tabId, url: event.url, atMs: event.atMs };
     case "response": {
       const { entry } = event;
-      return { kind: event.kind, tab: event.tabId, id: entry.id, method: entry.method, url: entry.url, type: entry.resourceType, state: entry.state, status: entry.status, durationMs: entry.durationMs, failure: entry.failure, atMs: event.atMs };
+      return {
+        kind: event.kind,
+        tab: event.tabId,
+        id: entry.id,
+        method: entry.method,
+        url: entry.url,
+        type: entry.resourceType,
+        state: entry.state,
+        status: entry.status,
+        durationMs: entry.durationMs,
+        failure: entry.failure,
+        atMs: event.atMs,
+      };
     }
     case "console":
       return { kind: event.kind, tab: event.tabId, ...event.message };

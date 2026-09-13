@@ -15,7 +15,14 @@ import { NetworkLog } from "./network.ts";
 import { appendHistoryStep, historyFileName, isReplayable, replayStep } from "./history.ts";
 import { approvalBundlesDirFrom, auditLogPathFrom, idleMsFrom, profilePaths, sessionFolderName } from "./paths.ts";
 import { fixProfileMode } from "./profile-mode.ts";
-import { CommandError, isCommandName, type CommandData, type DaemonRequest, type DaemonResponse, type DaemonStreamLine } from "./protocol.ts";
+import {
+  CommandError,
+  isCommandName,
+  type CommandData,
+  type DaemonRequest,
+  type DaemonResponse,
+  type DaemonStreamLine,
+} from "./protocol.ts";
 import { RouteTable } from "./routes.ts";
 import { loadSavedSessions, pruneSessionFolders, saveSessions } from "./session-store.ts";
 import { SessionRegistry, type SavedSession } from "./sessions.ts";
@@ -29,7 +36,11 @@ export interface DaemonOptions {
   exitProcess?: (code: number) => void;
 }
 
-export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = process.env, options: DaemonOptions = {}): Promise<void> {
+export async function runDaemon(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+  options: DaemonOptions = {},
+): Promise<void> {
   const paths = profilePaths(profile, env);
   const idleMs = idleMsFrom(env);
   const log = (message: string) => process.stdout.write(`${new Date().toISOString()} ${message}\n`);
@@ -40,7 +51,9 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   const pruned = await pruneSessionFolders(paths.sessionsDir, Date.now());
   if (pruned.length > 0) log(`pruned ${pruned.length} session folders older than 7 days`);
   // Sessions wait here until their first command, so a restart does not reload every site at once.
-  const awaitingRestore = new Map<string, SavedSession>((await loadSavedSessions(paths.savedSessionsPath, Date.now())).map((saved) => [saved.name, saved]));
+  const awaitingRestore = new Map<string, SavedSession>(
+    (await loadSavedSessions(paths.savedSessionsPath, Date.now())).map((saved) => [saved.name, saved]),
+  );
   let isSavingSessions = true;
   let saveTimer: NodeJS.Timeout | undefined;
   const saveSessionsNow = async () => {
@@ -48,7 +61,9 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     saveTimer = undefined;
     // A session mid-restore stays saved as it was, so a crash during the restore cannot save its first few tabs over it.
     const live = registry.savedSessions().filter((saved) => !awaitingRestore.has(saved.name));
-    await saveSessions(paths.savedSessionsPath, [...live, ...awaitingRestore.values()], Date.now()).catch((err: unknown) => log(`saving sessions.json failed: ${String(err)}`));
+    await saveSessions(paths.savedSessionsPath, [...live, ...awaitingRestore.values()], Date.now()).catch(
+      (err: unknown) => log(`saving sessions.json failed: ${String(err)}`),
+    );
   };
   const scheduleSessionsSave = () => {
     if (!isSavingSessions || saveTimer !== undefined) return;
@@ -57,9 +72,13 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
 
   const engine: BrowserEngine = new PatchrightEngine();
   const events = new SessionEvents();
-  const network = new NetworkLog((entry) => events.publish(entry.session, { kind: "response", tabId: entry.tabId, entry, atMs: Date.now() }));
+  const network = new NetworkLog((entry) =>
+    events.publish(entry.session, { kind: "response", tabId: entry.tabId, entry, atMs: Date.now() }),
+  );
   const routes = new RouteTable();
-  const diagnostics = new PageDiagnostics((tab, pageError) => events.publish(tab.session, { kind: "error", tabId: tab.id, pageError, atMs: Date.now() }));
+  const diagnostics = new PageDiagnostics((tab, pageError) =>
+    events.publish(tab.session, { kind: "error", tabId: tab.id, pageError, atMs: Date.now() }),
+  );
   const consoleCaptureByTab = new WeakMap<object, Promise<void>>();
   // One regroup at a time per session, so two tabs opened together join one group instead of starting two.
   // A tab group is a label for people watching the browser, so a failure is logged and never fails a command.
@@ -67,12 +86,16 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   // chrome.tabs.get answers "No tab with id" for their tabs.
   const regroupQueues = new Map<string, Promise<void>>();
   const regroupTabs = (session: string): Promise<void> => {
-    const regrouped = (regroupQueues.get(session) ?? Promise.resolve()).then(async () => {
-      await launched;
-      const pages = registry.openTabsOf(session).map((tab) => tab.page);
-      if (pages.length === 0 || registry.browserContextOf(session) !== undefined) return;
-      await engine.groupTabs(pages, tabGroupTitleFor(session, registry.labelOf(session)), tabGroupColorFor(session));
-    }).catch((err: unknown) => { log(`${session} tab grouping failed: ${String(err).split("\n")[0]}`); });
+    const regrouped = (regroupQueues.get(session) ?? Promise.resolve())
+      .then(async () => {
+        await launched;
+        const pages = registry.openTabsOf(session).map((tab) => tab.page);
+        if (pages.length === 0 || registry.browserContextOf(session) !== undefined) return;
+        await engine.groupTabs(pages, tabGroupTitleFor(session, registry.labelOf(session)), tabGroupColorFor(session));
+      })
+      .catch((err: unknown) => {
+        log(`${session} tab grouping failed: ${String(err).split("\n")[0]}`);
+      });
     regroupQueues.set(session, regrouped);
     void regrouped.then(() => {
       if (regroupQueues.get(session) === regrouped) regroupQueues.delete(session);
@@ -83,17 +106,26 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     network.record(tab);
     routes.track(tab);
     tab.page.on("framenavigated", (frame) => {
-      if (frame === tab.page.mainFrame()) events.publish(tab.session, { kind: "navigation", tabId: tab.id, url: frame.url(), atMs: Date.now() });
+      if (frame === tab.page.mainFrame())
+        events.publish(tab.session, { kind: "navigation", tabId: tab.id, url: frame.url(), atMs: Date.now() });
     });
-    tab.page.on("load", () => events.publish(tab.session, { kind: "load", tabId: tab.id, url: tab.page.url(), atMs: Date.now() }));
+    tab.page.on("load", () =>
+      events.publish(tab.session, { kind: "load", tabId: tab.id, url: tab.page.url(), atMs: Date.now() }),
+    );
     void regroupTabs(tab.session);
     switch (mode) {
       case "stealth":
         break;
       case "debug":
-        consoleCaptureByTab.set(tab, engine.openCdpSession(tab.page)
-          .then((cdp) => diagnostics.record(tab, cdp))
-          .catch((err: unknown) => { log(`console capture failed for ${tab.id}: ${String(err)}`); }));
+        consoleCaptureByTab.set(
+          tab,
+          engine
+            .openCdpSession(tab.page)
+            .then((cdp) => diagnostics.record(tab, cdp))
+            .catch((err: unknown) => {
+              log(`console capture failed for ${tab.id}: ${String(err)}`);
+            }),
+        );
         break;
     }
   }, scheduleSessionsSave);
@@ -152,7 +184,12 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
       awaitingRestore.delete(name);
       scheduleSessionsSave();
     },
-    copyGuard: new CopyGuard({ prompts: options.prompts ?? hostPromptsFor(detectHostPlatform(), log, approvalBundlesDirFrom(env)), auditLogPath: auditLogPathFrom(env), profile, log }),
+    copyGuard: new CopyGuard({
+      prompts: options.prompts ?? hostPromptsFor(detectHostPlatform(), log, approvalBundlesDirFrom(env)),
+      auditLogPath: auditLogPathFrom(env),
+      profile,
+      log,
+    }),
   };
 
   // Listening before Chrome is up lets concurrent starters connect at once; requests wait on launch.
@@ -194,8 +231,9 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   async function recordHistory(request: DaemonRequest, data: CommandData) {
     if (request.argv === undefined || !isReplayable(request.command, request.args)) return;
     const path = join(paths.sessionsDir, sessionFolderName(request.session), historyFileName);
-    await appendHistoryStep(path, replayStep(request.command, request.argv, data.replay, Date.now()))
-      .catch((err: unknown) => log(`${request.session} history write failed: ${String(err)}`));
+    await appendHistoryStep(path, replayStep(request.command, request.argv, data.replay, Date.now())).catch(
+      (err: unknown) => log(`${request.session} history write failed: ${String(err)}`),
+    );
   }
 
   // A follow runs until its timeout or until the client disconnects, and outside the session queue, so
@@ -215,7 +253,9 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     }
     const { restored, dropped } = await restoreSession(ctx, saved, request.timeoutMs);
     awaitingRestore.delete(request.session);
-    log(`${request.session} restored tabs ${restored.join(" ") || "none"}${dropped.length > 0 ? `, dropped ${dropped.join(" ")}` : ""}`);
+    log(
+      `${request.session} restored tabs ${restored.join(" ") || "none"}${dropped.length > 0 ? `, dropped ${dropped.join(" ")}` : ""}`,
+    );
   }
 
   async function respond(socket: Socket, line: string, disconnected: AbortSignal) {
@@ -284,7 +324,11 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
 // which would otherwise crash the daemon and every session in it.
 export function isClosedTargetRejection(reason: unknown): boolean {
   // The class leaves `name` as "Error"; only its constructor carries the ProtocolError name.
-  return reason instanceof Error && reason.constructor.name === "ProtocolError" && (reason as Error & { type?: unknown }).type === "closed";
+  return (
+    reason instanceof Error &&
+    reason.constructor.name === "ProtocolError" &&
+    (reason as Error & { type?: unknown }).type === "closed"
+  );
 }
 
 function send(socket: Socket, response: DaemonResponse | DaemonStreamLine) {
@@ -308,7 +352,7 @@ function parseRequest(line: string): DaemonRequest {
 function toCommandError(err: unknown): CommandError {
   if (err instanceof CommandError) return err;
   if (err instanceof SyntaxError) return new CommandError("bad_args", `malformed request: ${err.message}`);
-  const message = err instanceof Error ? err.message.split("\n")[0] ?? err.message : String(err);
+  const message = err instanceof Error ? (err.message.split("\n")[0] ?? err.message) : String(err);
   if (err instanceof Error && err.name === "TimeoutError") return new CommandError("timeout", message);
   return new CommandError("bad_args", message);
 }

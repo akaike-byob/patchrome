@@ -20,7 +20,8 @@ describe("chrome tab groups per session", () => {
     await fixture.close();
   });
 
-  const tabGroupsOf = async (session: string) => (await runCli(home, session, ["session"])).json.data?.tabGroups as TabGroupRow[];
+  const tabGroupsOf = async (session: string) =>
+    (await runCli(home, session, ["session"])).json.data?.tabGroups as TabGroupRow[];
 
   it("groups each session's tabs under its name, and a label joins the title", async () => {
     await runCli(home, "agent-a", ["open", `${fixture.origin}/form?name=one`]);
@@ -37,7 +38,9 @@ describe("chrome tab groups per session", () => {
     expect(relabelled).toEqual([{ title: "agent-a: checkout flow", color: groupsA[0]?.color, tabCount: 2 }]);
 
     await runCli(home, "agent-a", ["open"]);
-    expect((await tabGroupsOf("agent-a")).map((group) => [group.title, group.tabCount])).toEqual([["agent-a: checkout flow", 3]]);
+    expect((await tabGroupsOf("agent-a")).map((group) => [group.title, group.tabCount])).toEqual([
+      ["agent-a: checkout flow", 3],
+    ]);
   });
 
   it("puts a popup in its opener's group", async () => {
@@ -46,7 +49,9 @@ describe("chrome tab groups per session", () => {
     const ref = snapshot.match(/link "Open popup" \[ref=([^\]]+)\]/)?.[1];
     expect(ref).toBeDefined();
     await runCli(home, "agent-c", ["click", ref ?? ""]);
-    await expect.poll(async () => (await runCli(home, "agent-c", ["tabs"])).json.data?.tabs, { timeout: 10_000 }).toHaveLength(2);
+    await expect
+      .poll(async () => (await runCli(home, "agent-c", ["tabs"])).json.data?.tabs, { timeout: 10_000 })
+      .toHaveLength(2);
     expect((await tabGroupsOf("agent-c")).map((group) => [group.title, group.tabCount])).toEqual([["agent-c", 2]]);
   });
 
@@ -67,6 +72,8 @@ describe("chrome tab groups per session", () => {
     }
     const session = (await runCli(home, "agent-a", ["session"])).json.data;
     expect(session?.label).toBe("checkout flow");
-    expect((session?.tabGroups as TabGroupRow[]).map((group) => [group.title, group.tabCount])).toEqual([["agent-a: checkout flow", 3]]);
+    expect((session?.tabGroups as TabGroupRow[]).map((group) => [group.title, group.tabCount])).toEqual([
+      ["agent-a: checkout flow", 3],
+    ]);
   });
 });

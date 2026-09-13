@@ -6,14 +6,21 @@ import { wslPrompts } from "./host-prompts-wsl.ts";
 // A desktop Linux has no prompt a script cannot click, so copies there are refused and only logged.
 const noPrompts = (platform: HostPlatform, log: (message: string) => void): HostPrompts => ({
   async askApproval() {
-    return { answer: "unavailable", detail: `no approval prompt on ${platform}; patchrome asks through Touch ID on macOS and Windows Hello on WSL` };
+    return {
+      answer: "unavailable",
+      detail: `no approval prompt on ${platform}; patchrome asks through Touch ID on macOS and Windows Hello on WSL`,
+    };
   },
   async notify(title, body) {
     log(`${title}: ${body}`);
   },
 });
 
-export function hostPromptsFor(platform: HostPlatform, log: (message: string) => void, macosBundlesDir: string): HostPrompts {
+export function hostPromptsFor(
+  platform: HostPlatform,
+  log: (message: string) => void,
+  macosBundlesDir: string,
+): HostPrompts {
   switch (platform) {
     case "macos":
       return macosPrompts(macosBundlesDir, log);

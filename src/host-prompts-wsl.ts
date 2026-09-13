@@ -52,7 +52,11 @@ $manager::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPo
 }
 
 function powerShell(script: string, timeoutMs: number) {
-  return run("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedPowerShell(script)], { timeout: timeoutMs });
+  return run(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedPowerShell(script)],
+    { timeout: timeoutMs },
+  );
 }
 
 export const wslPrompts: HostPrompts = {

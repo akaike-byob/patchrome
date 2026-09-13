@@ -15,11 +15,16 @@ const html = `<!doctype html><title>fixture</title>
 <script>document.querySelector('#shadow-host').attachShadow({mode:'closed'}).innerHTML='<button>Shadow btn</button>'</script>`;
 
 const profileDir = mkdtempSync(join(tmpdir(), "spike1-"));
-const context = await chromium.launchPersistentContext(profileDir, { channel: "chrome", headless: false, viewport: null, chromiumSandbox: true });
+const context = await chromium.launchPersistentContext(profileDir, {
+  channel: "chrome",
+  headless: false,
+  viewport: null,
+  chromiumSandbox: true,
+});
 const page = await context.newPage();
 await page.setContent(html);
 
-const snapshot = await page._snapshotForAI?.() ?? await page.locator("body").ariaSnapshot({ mode: "ai" });
+const snapshot = (await page._snapshotForAI?.()) ?? (await page.locator("body").ariaSnapshot({ mode: "ai" }));
 const snapshotText = typeof snapshot === "string" ? snapshot : snapshot.full;
 console.log("--- snapshot ---\n" + snapshotText);
 

@@ -11,10 +11,14 @@ async function tabsOfTargets(targetIds) {
 // A tab already in a group keeps that group, so a new tab joins its session's group instead of starting one.
 globalThis.patchromeGroupTabs = async ({ targetIds, title, color }) => {
   const tabsByWindow = new Map();
-  for (const tab of await tabsOfTargets(targetIds)) tabsByWindow.set(tab.windowId, [...(tabsByWindow.get(tab.windowId) ?? []), tab]);
+  for (const tab of await tabsOfTargets(targetIds))
+    tabsByWindow.set(tab.windowId, [...(tabsByWindow.get(tab.windowId) ?? []), tab]);
   for (const tabs of tabsByWindow.values()) {
     const existingGroupId = tabs.find((tab) => tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE)?.groupId;
-    const groupId = await chrome.tabs.group({ tabIds: tabs.map((tab) => tab.id), ...(existingGroupId === undefined ? {} : { groupId: existingGroupId }) });
+    const groupId = await chrome.tabs.group({
+      tabIds: tabs.map((tab) => tab.id),
+      ...(existingGroupId === undefined ? {} : { groupId: existingGroupId }),
+    });
     await chrome.tabGroups.update(groupId, { title, color });
   }
 };
@@ -25,10 +29,12 @@ globalThis.patchromeDescribeTabGroups = async ({ targetIds }) => {
     if (tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) continue;
     tabCountByGroup.set(tab.groupId, (tabCountByGroup.get(tab.groupId) ?? 0) + 1);
   }
-  return Promise.all([...tabCountByGroup].map(async ([groupId, tabCount]) => {
-    const group = await chrome.tabGroups.get(groupId);
-    return { title: group.title ?? "", color: group.color, tabCount };
-  }));
+  return Promise.all(
+    [...tabCountByGroup].map(async ([groupId, tabCount]) => {
+      const group = await chrome.tabGroups.get(groupId);
+      return { title: group.title ?? "", color: group.color, tabCount };
+    }),
+  );
 };
 
 // Tab events wake the worker if Chrome ever suspends it.

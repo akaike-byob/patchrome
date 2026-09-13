@@ -85,9 +85,7 @@ export interface ErrorBody {
   hint?: string;
 }
 
-export type DaemonResponse =
-  | { id: number; ok: true; data: CommandData }
-  | { id: number; ok: false; error: ErrorBody };
+export type DaemonResponse = { id: number; ok: true; data: CommandData } | { id: number; ok: false; error: ErrorBody };
 
 // A streaming command such as `console --follow` sends these before its final response.
 export interface DaemonStreamLine {

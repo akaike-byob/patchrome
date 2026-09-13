@@ -13,8 +13,14 @@ export const moduleExtension = extname(fileURLToPath(import.meta.url));
 export function currentBuildId(env: NodeJS.ProcessEnv = process.env): string {
   // Tests set this to play a CLI from another build without editing sources.
   if (env.PATCHROME_BUILD_ID !== undefined && env.PATCHROME_BUILD_ID !== "") return env.PATCHROME_BUILD_ID;
-  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  };
   if (moduleExtension === ".js") return version;
-  const newestMtimeMs = Math.max(...readdirSync(srcDir).filter((name) => name.endsWith(moduleExtension)).map((name) => statSync(new URL(name, srcDir)).mtimeMs));
+  const newestMtimeMs = Math.max(
+    ...readdirSync(srcDir)
+      .filter((name) => name.endsWith(moduleExtension))
+      .map((name) => statSync(new URL(name, srcDir)).mtimeMs),
+  );
   return `${version}+${Math.floor(newestMtimeMs)}`;
 }

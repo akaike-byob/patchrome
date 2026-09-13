@@ -6,7 +6,13 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { idleMsFrom, profilePaths, type ProfilePaths } from "./paths.ts";
-import { CommandError, type CommandArgs, type CommandName, type DaemonResponse, type DaemonStreamLine } from "./protocol.ts";
+import {
+  CommandError,
+  type CommandArgs,
+  type CommandName,
+  type DaemonResponse,
+  type DaemonStreamLine,
+} from "./protocol.ts";
 
 const daemonStartTimeoutMs = 30_000;
 const lockPollMs = 100;
@@ -62,20 +68,25 @@ export class DaemonConnection {
       this.#pending.set(id, { resolve, reject, onStream: request.onStream ?? (() => {}), timer });
     });
     socket.ref();
-    socket.write(`${JSON.stringify({
-      id,
-      session: request.session,
-      command: request.command,
-      args: request.args,
-      timeoutMs: request.timeoutMs,
-      argv: request.argv,
-      buildId: currentBuildId(this.#env),
-    })}\n`);
+    socket.write(
+      `${JSON.stringify({
+        id,
+        session: request.session,
+        command: request.command,
+        args: request.args,
+        timeoutMs: request.timeoutMs,
+        argv: request.argv,
+        buildId: currentBuildId(this.#env),
+      })}\n`,
+    );
     return answered;
   }
 
   close(): void {
-    void this.#socket?.then((socket) => socket.end(), () => {});
+    void this.#socket?.then(
+      (socket) => socket.end(),
+      () => {},
+    );
     this.#socket = undefined;
   }
 
@@ -85,7 +96,8 @@ export class DaemonConnection {
       const paths = profilePaths(this.#profile, this.#env);
       const existing = await tryConnect(paths.socketPath);
       if (existing) return this.#attach(existing);
-      if (!shouldStartDaemon) throw new CommandError("daemon_unreachable", `no daemon running for profile ${this.#profile}`);
+      if (!shouldStartDaemon)
+        throw new CommandError("daemon_unreachable", `no daemon running for profile ${this.#profile}`);
       return this.#attach(await startDaemonAndConnect(this.#profile, paths, this.#env));
     })();
     this.#socket = connecting;
@@ -121,9 +133,12 @@ export class DaemonConnection {
     });
     const fail = (reason: string) => {
       const connecting = this.#socket;
-      void connecting?.then((current) => {
-        if (current === socket && this.#socket === connecting) this.#socket = undefined;
-      }, () => {});
+      void connecting?.then(
+        (current) => {
+          if (current === socket && this.#socket === connecting) this.#socket = undefined;
+        },
+        () => {},
+      );
       for (const [id, pending] of this.#pending) {
         clearTimeout(pending.timer);
         this.#pending.delete(id);
@@ -162,7 +177,11 @@ async function startDaemonAndConnect(profile: string, paths: ProfilePaths, env: 
     await sleep(lockPollMs);
   }
   const logTail = (await readFile(paths.logPath, "utf8").catch(() => "")).trim().split("\n").slice(-3).join(" | ");
-  throw new CommandError("daemon_unreachable", `daemon for profile ${profile} did not start within ${daemonStartTimeoutMs} ms`, logTail === "" ? `see ${paths.logPath}` : `last log lines: ${logTail}`);
+  throw new CommandError(
+    "daemon_unreachable",
+    `daemon for profile ${profile} did not start within ${daemonStartTimeoutMs} ms`,
+    logTail === "" ? `see ${paths.logPath}` : `last log lines: ${logTail}`,
+  );
 }
 
 async function tryAcquireLock(lockDir: string): Promise<boolean> {

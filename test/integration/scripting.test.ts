@@ -22,13 +22,25 @@ describe("scripting", () => {
   const env = { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "" };
 
   // Feeds lines to `patchrome pipe` and collects every JSON line it writes.
-  const runPipe = (session: string, lines: string[], extraArgs: string[] = []) => new Promise<{ exitCode: number; output: PipeLine[] }>((resolve) => {
-    const child = spawn(process.execPath, [binPath, "--session", session, "pipe", ...extraArgs], { env });
-    let stdout = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
-    child.on("close", (code) => resolve({ exitCode: code ?? 1, output: stdout.trim().split("\n").filter((line) => line !== "").map((line) => JSON.parse(line) as PipeLine) }));
-    child.stdin.end(`${lines.join("\n")}\n`);
-  });
+  const runPipe = (session: string, lines: string[], extraArgs: string[] = []) =>
+    new Promise<{ exitCode: number; output: PipeLine[] }>((resolve) => {
+      const child = spawn(process.execPath, [binPath, "--session", session, "pipe", ...extraArgs], { env });
+      let stdout = "";
+      child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+        stdout += chunk;
+      });
+      child.on("close", (code) =>
+        resolve({
+          exitCode: code ?? 1,
+          output: stdout
+            .trim()
+            .split("\n")
+            .filter((line) => line !== "")
+            .map((line) => JSON.parse(line) as PipeLine),
+        }),
+      );
+      child.stdin.end(`${lines.join("\n")}\n`);
+    });
 
   beforeAll(async () => {
     fixture = await startFixtureServer();
@@ -42,10 +54,22 @@ describe("scripting", () => {
   it("acts on elements by role, label and text", async () => {
     await runCli(home, "locators", ["open", `${fixture.origin}/form?name=roles`]);
     expect((await runCli(home, "locators", ["fill", "--label", "Name", "ada"])).json.ok).toBe(true);
-    expect((await runCli(home, "locators", ["click", "--role", "button", "--name", "Greet", "--exact"])).json.ok).toBe(true);
+    expect((await runCli(home, "locators", ["click", "--role", "button", "--name", "Greet", "--exact"])).json.ok).toBe(
+      true,
+    );
     expect((await runCli(home, "locators", ["wait", "--text", "hello ada"])).json.ok).toBe(true);
-    expect((await runCli(home, "locators", ["text", "--selector", "#out", "--inline"])).json.data).toEqual({ text: "hello ada" });
-    const missing = await runCli(home, "locators", ["--timeout-ms", "800", "click", "--role", "link", "--name", "Nowhere"]);
+    expect((await runCli(home, "locators", ["text", "--selector", "#out", "--inline"])).json.data).toEqual({
+      text: "hello ada",
+    });
+    const missing = await runCli(home, "locators", [
+      "--timeout-ms",
+      "800",
+      "click",
+      "--role",
+      "link",
+      "--name",
+      "Nowhere",
+    ]);
     expect(missing.json.error?.code).toBe("timeout");
   });
 
@@ -56,7 +80,9 @@ describe("scripting", () => {
     const outPath = join(home, "out", "long.txt");
     expect((await runCli(home, "shapes", ["text", "--out", outPath])).json.data?.path).toBe(outPath);
     expect(readFileSync(outPath, "utf8")).toContain("lorem ipsum");
-    expect((await runCli(home, "shapes", ["eval", "({ title: document.title, n: 2 })"])).json.data).toEqual({ value: { title: "long", n: 2 } });
+    expect((await runCli(home, "shapes", ["eval", "({ title: document.title, n: 2 })"])).json.data).toEqual({
+      value: { title: "long", n: 2 },
+    });
     expect((await runCli(home, "shapes", ["eval", "undefined"])).json.data).toEqual({ value: null });
 
     await runCli(home, "shapes", ["goto", `${fixture.origin}/shop`]);
@@ -88,12 +114,19 @@ describe("scripting", () => {
   });
 
   it("stops at the first failure with --bail", async () => {
-    const { exitCode, output } = await runPipe("bailer", [
-      JSON.stringify(["open", `${fixture.origin}/form?name=bail`]),
-      JSON.stringify(["--timeout-ms", "500", "click", "--selector", "#missing"]),
-      JSON.stringify(["goto", `${fixture.origin}/form?name=never`]),
-    ], ["--bail"]);
-    expect(output.map((line) => [line.id, line.ok])).toEqual([[1, true], [2, false]]);
+    const { exitCode, output } = await runPipe(
+      "bailer",
+      [
+        JSON.stringify(["open", `${fixture.origin}/form?name=bail`]),
+        JSON.stringify(["--timeout-ms", "500", "click", "--selector", "#missing"]),
+        JSON.stringify(["goto", `${fixture.origin}/form?name=never`]),
+      ],
+      ["--bail"],
+    );
+    expect(output.map((line) => [line.id, line.ok])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
     expect(exitCode).toBe(1);
     expect((await runCli(home, "bailer", ["eval", "document.title"])).json.data?.value).toBe("form bail");
   });
@@ -108,10 +141,14 @@ describe("scripting", () => {
     await runCli(home, "explorer", ["fill", `@${nameRef}`, "cy"]);
     await runCli(home, "explorer", ["click", `@${greetRef}`]);
     await runCli(home, "explorer", ["tabs"]);
-    expect((await runCli(home, "explorer", ["text", "--selector", "#out", "--inline"])).json.data?.text).toBe("hello cy");
+    expect((await runCli(home, "explorer", ["text", "--selector", "#out", "--inline"])).json.data?.text).toBe(
+      "hello cy",
+    );
 
     const jsonl = await runCli(home, "explorer", ["session", "history", "--format", "jsonl"]);
-    const steps = String(jsonl.json.data?.script).split("\n").map((line) => JSON.parse(line) as { argv: string[] });
+    const steps = String(jsonl.json.data?.script)
+      .split("\n")
+      .map((line) => JSON.parse(line) as { argv: string[] });
     expect(steps.map((step) => step.argv)).toEqual([
       ["open", `${fixture.origin}/form?name=explored`],
       ["fill", "--role", "textbox", "--name", "Name", "--exact", "cy"],
@@ -128,9 +165,16 @@ describe("scripting", () => {
     symlinkSync(binPath, join(binDir, "patchrome"));
     chmodSync(binPath, 0o755);
     const scriptPath = join(home, "flow.sh");
-    expect((await runCli(home, "explorer", ["session", "history", "--out", scriptPath])).json.data?.path).toBe(scriptPath);
+    expect((await runCli(home, "explorer", ["session", "history", "--out", scriptPath])).json.data?.path).toBe(
+      scriptPath,
+    );
     const scriptRun = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-      execFile("sh", [scriptPath], { env: { ...env, PATH: `${binDir}:${process.env.PATH}`, PATCHROME_SESSION: "sh-replay" } }, (err, stdout, stderr) => resolve({ code: err ? Number(err.code) : 0, stdout, stderr }));
+      execFile(
+        "sh",
+        [scriptPath],
+        { env: { ...env, PATH: `${binDir}:${process.env.PATH}`, PATCHROME_SESSION: "sh-replay" } },
+        (err, stdout, stderr) => resolve({ code: err ? Number(err.code) : 0, stdout, stderr }),
+      );
     });
     expect(scriptRun.stderr).toBe("");
     expect(scriptRun.code).toBe(0);

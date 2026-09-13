@@ -31,14 +31,21 @@ describe("idleMsFrom", () => {
 
   it("rejects values that setTimeout would turn into 1 ms", () => {
     for (const raw of ["soon", "", "0", "-5", "1.5"]) {
-      expect(errorCodeOf(() => idleMsFrom({ PATCHROME_IDLE_MS: raw })), raw).toBe("bad_args");
+      expect(
+        errorCodeOf(() => idleMsFrom({ PATCHROME_IDLE_MS: raw })),
+        raw,
+      ).toBe("bad_args");
     }
   });
 });
 
 describe("profilePaths", () => {
   it("rejects a socket path past the macOS limit", () => {
-    expect(errorCodeOf(() => profilePaths("p".repeat(64), { PATCHROME_HOME: "/Users/someone/.cache/patchrome" }))).toBe("bad_args");
-    expect(errorCodeOf(() => profilePaths("stealth", { PATCHROME_HOME: "/Users/someone/.cache/patchrome" }))).toBeUndefined();
+    expect(errorCodeOf(() => profilePaths("p".repeat(64), { PATCHROME_HOME: "/Users/someone/.cache/patchrome" }))).toBe(
+      "bad_args",
+    );
+    expect(
+      errorCodeOf(() => profilePaths("stealth", { PATCHROME_HOME: "/Users/someone/.cache/patchrome" })),
+    ).toBeUndefined();
   });
 });

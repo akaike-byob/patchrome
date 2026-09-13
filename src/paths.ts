@@ -41,7 +41,11 @@ export function profilePaths(profile: string, env: NodeJS.ProcessEnv = process.e
   const profileDir = join(cacheRoot(env), profile);
   const socketPath = join(profileDir, "daemon.sock");
   if (Buffer.byteLength(socketPath) > maxSocketPathBytes) {
-    throw new CommandError("bad_args", `socket path ${socketPath} is over ${maxSocketPathBytes} bytes`, "use a shorter --profile name or PATCHROME_HOME");
+    throw new CommandError(
+      "bad_args",
+      `socket path ${socketPath} is over ${maxSocketPathBytes} bytes`,
+      "use a shorter --profile name or PATCHROME_HOME",
+    );
   }
   return {
     profileDir,

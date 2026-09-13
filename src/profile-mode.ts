@@ -29,15 +29,28 @@ export async function readProfileMode(paths: ProfilePaths): Promise<ProfileMode 
 }
 
 function parseConfig(raw: string, path: string): { mode: ProfileMode } {
-  return parseJsonInput(z.object({ mode: z.enum(profileModes) }), raw, path, `mode must be one of ${profileModes.join(", ")}`);
+  return parseJsonInput(
+    z.object({ mode: z.enum(profileModes) }),
+    raw,
+    path,
+    `mode must be one of ${profileModes.join(", ")}`,
+  );
 }
 
 // Mode is fixed once written: a stealth profile's cookies must never end up behind an open debugging port.
-export async function fixProfileMode(paths: ProfilePaths, profile: string, requested: ProfileMode | undefined): Promise<{ mode: ProfileMode; isNew: boolean }> {
+export async function fixProfileMode(
+  paths: ProfilePaths,
+  profile: string,
+  requested: ProfileMode | undefined,
+): Promise<{ mode: ProfileMode; isNew: boolean }> {
   const existing = await readProfileMode(paths);
   if (existing !== undefined) {
     if (requested !== undefined && requested !== existing) {
-      throw new CommandError("bad_args", `profile ${profile} is already a ${existing} profile`, `a profile's mode is fixed; create another profile for ${requested}`);
+      throw new CommandError(
+        "bad_args",
+        `profile ${profile} is already a ${existing} profile`,
+        `a profile's mode is fixed; create another profile for ${requested}`,
+      );
     }
     return { mode: existing, isNew: false };
   }

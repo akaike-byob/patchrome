@@ -6,20 +6,31 @@ import { join } from "node:path";
 import { startFixtureServer } from "./fixture-server.mjs";
 
 const { server, origin } = await startFixtureServer();
-const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike3-")), { channel: "chrome", headless: false, viewport: null, chromiumSandbox: true });
-const persistentPage = context.pages()[0] ?? await context.newPage();
+const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "spike3-")), {
+  channel: "chrome",
+  headless: false,
+  viewport: null,
+  chromiumSandbox: true,
+});
+const persistentPage = context.pages()[0] ?? (await context.newPage());
 await persistentPage.goto(`${origin}/set-cookie`);
 await persistentPage.goto(`${origin}/whoami`);
 console.log("persistent cookie:", await persistentPage.locator("#c").textContent());
 
 // Runtime.enable leak probe: an Error whose stack getter fires only when a CDP client serialises console args.
-const probeRuntimeLeak = (page) => page.evaluate(() => {
-  let touched = false;
-  const err = new Error();
-  Object.defineProperty(err, "stack", { get() { touched = true; return ""; } });
-  console.debug(err);
-  return touched;
-});
+const probeRuntimeLeak = (page) =>
+  page.evaluate(() => {
+    let touched = false;
+    const err = new Error();
+    Object.defineProperty(err, "stack", {
+      get() {
+        touched = true;
+        return "";
+      },
+    });
+    console.debug(err);
+    return touched;
+  });
 console.log("runtime leak before CDP work:", await probeRuntimeLeak(persistentPage));
 
 const cdp = await context.newCDPSession(persistentPage);
@@ -36,7 +47,11 @@ const { browserContextId } = await session.send("Target.createBrowserContext", {
 console.log("created browserContextId:", browserContextId);
 
 const pagePromise = context.waitForEvent("page", { timeout: 5000 }).catch((err) => err);
-const { targetId } = await session.send("Target.createTarget", { url: `${origin}/whoami`, browserContextId, background: true });
+const { targetId } = await session.send("Target.createTarget", {
+  url: `${origin}/whoami`,
+  browserContextId,
+  background: true,
+});
 const isolatedPage = await pagePromise;
 if (isolatedPage instanceof Error) {
   console.log("isolated page surfaced to Playwright:", isolatedPage.message.split("\n")[0]);

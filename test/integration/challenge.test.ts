@@ -24,7 +24,10 @@ describe("widgets in cross-site iframes and closed shadow roots", () => {
     expect(clicked.json.ok).toBe(true);
     const solved = await runCli(home, "solver", ["challenge"]);
     expect(solved.json).toMatchObject({ ok: true, data: { state: "solved" } });
-    const token = await runCli(home, "solver", ["eval", "document.querySelector('[name=cf-turnstile-response]').value"]);
+    const token = await runCli(home, "solver", [
+      "eval",
+      "document.querySelector('[name=cf-turnstile-response]').value",
+    ]);
     expect(token.json.data?.value).toBe("token-true");
   });
 
@@ -43,9 +46,14 @@ describe("widgets in cross-site iframes and closed shadow roots", () => {
     const report = await runCli(home, "pointer", ["challenge"]);
     expect(report.json.data?.state).toBe("pending");
     // The checkbox sits at the iframe's top-left, inside its 8 px body margin.
-    const frameBox = await runCli(home, "pointer", ["eval", "JSON.stringify(document.querySelector('iframe').getBoundingClientRect())"]);
+    const frameBox = await runCli(home, "pointer", [
+      "eval",
+      "JSON.stringify(document.querySelector('iframe').getBoundingClientRect())",
+    ]);
     const box = JSON.parse(String(frameBox.json.data?.value)) as { x: number; y: number };
-    expect((await runCli(home, "pointer", ["click", "--at", `${Math.round(box.x + 14)},${Math.round(box.y + 14)}`])).json.ok).toBe(true);
+    expect(
+      (await runCli(home, "pointer", ["click", "--at", `${Math.round(box.x + 14)},${Math.round(box.y + 14)}`])).json.ok,
+    ).toBe(true);
     expect((await runCli(home, "pointer", ["challenge"])).json.data?.state).toBe("solved");
   });
 

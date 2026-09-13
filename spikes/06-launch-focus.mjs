@@ -5,13 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "patchright";
 
-const front = (field) => execFileSync("zsh", ["-c", `lsappinfo info -only ${field} $(lsappinfo front)`], { encoding: "utf8" }).trim().replace(/.*="?([^"]*)"?$/, "$1");
+const front = (field) =>
+  execFileSync("zsh", ["-c", `lsappinfo info -only ${field} $(lsappinfo front)`], { encoding: "utf8" })
+    .trim()
+    .replace(/.*="?([^"]*)"?$/, "$1");
 const before = front("bundleid");
 const log = [];
-const poll = setInterval(() => { const b = front("bundleid"); if (log.at(-1)?.[1] !== b) log.push([Date.now(), b]); }, 20);
+const poll = setInterval(() => {
+  const b = front("bundleid");
+  if (log.at(-1)?.[1] !== b) log.push([Date.now(), b]);
+}, 20);
 const started = Date.now();
 const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "focus-")), {
-  channel: "chrome", headless: false, viewport: null, chromiumSandbox: true,
+  channel: "chrome",
+  headless: false,
+  viewport: null,
+  chromiumSandbox: true,
 });
 const launchedAt = Date.now();
 execFileSync("open", ["-b", before]);

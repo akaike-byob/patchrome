@@ -8,9 +8,24 @@ import { zshCompletionScript } from "./completions.ts";
 import { auditLine, readAuditLog } from "./copy-guard.ts";
 import { auditLogPathFrom, isValidName, profilePaths, sessionFolderName } from "./paths.ts";
 import { fixProfileMode, isProfileMode, profileModes } from "./profile-mode.ts";
-import { CommandError, exitCodeFor, type CommandArgs, type CommandData, type CommandName, type DaemonResponse } from "./protocol.ts";
+import {
+  CommandError,
+  exitCodeFor,
+  type CommandArgs,
+  type CommandData,
+  type CommandName,
+  type DaemonResponse,
+} from "./protocol.ts";
 import { lookupProcess, resolveSessionName } from "./session-name.ts";
-import { clearHistory, formatHistory, historyFileName, historyFormats, isHistoryFormat, readHistory, type HistoryFormat } from "./history.ts";
+import {
+  clearHistory,
+  formatHistory,
+  historyFileName,
+  historyFormats,
+  isHistoryFormat,
+  readHistory,
+  type HistoryFormat,
+} from "./history.ts";
 import { runPipe } from "./pipe.ts";
 import { CommandRunner, toCommandError } from "./runner.ts";
 
@@ -100,10 +115,22 @@ export type LocalAction =
   | { kind: "audit"; count: number; isJson: boolean }
   | { kind: "create-profile"; profile: string; mode: string; isJson: boolean }
   | { kind: "completions"; shell: "zsh" }
-  | { kind: "history"; profile: string; session: string; format: HistoryFormat; out: string | undefined; isClear: boolean; isJson: boolean }
+  | {
+      kind: "history";
+      profile: string;
+      session: string;
+      format: HistoryFormat;
+      out: string | undefined;
+      isClear: boolean;
+      isJson: boolean;
+    }
   | { kind: "pipe"; profile: string; session: string; isBail: boolean };
 
-export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback: () => string): ParsedCli | LocalAction {
+export function parseCli(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  sessionFallback: () => string,
+): ParsedCli | LocalAction {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -112,27 +139,54 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
   });
 
   const profile = values.profile ?? env.PATCHROME_PROFILE ?? "stealth";
-  if (!isValidName(profile)) throw new CommandError("bad_args", `invalid profile name ${profile}`, "use letters, digits, dot, dash, underscore");
+  if (!isValidName(profile))
+    throw new CommandError("bad_args", `invalid profile name ${profile}`, "use letters, digits, dot, dash, underscore");
   const [verb, ...rest] = positionals;
   // A person signs in by hand, which takes minutes, not the 30 s an agent command gets.
   // An import starts a second Chrome and copies every IndexedDB record of the site. Imports and loads also
   // wait up to a minute for the person to approve the copy.
-  const defaultTimeoutMs = verb === "login" || verb === "watch" || (verb === "challenge" && values.handoff) || (verb === "console" && values.follow) ? 600_000 : verb === "state" && (positionals[1] === "import" || positionals[1] === "load") ? 120_000 : 30_000;
+  const defaultTimeoutMs =
+    verb === "login" ||
+    verb === "watch" ||
+    (verb === "challenge" && values.handoff) ||
+    (verb === "console" && values.follow)
+      ? 600_000
+      : verb === "state" && (positionals[1] === "import" || positionals[1] === "load")
+        ? 120_000
+        : 30_000;
   const timeoutMs = values["timeout-ms"] === undefined ? defaultTimeoutMs : Number(values["timeout-ms"]);
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new CommandError("bad_args", `--timeout-ms must be a positive integer, got ${values["timeout-ms"]}`);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0)
+    throw new CommandError("bad_args", `--timeout-ms must be a positive integer, got ${values["timeout-ms"]}`);
 
   const need = (index: number, name: string): string => {
     const value = rest[index];
-    if (value === undefined) throw new CommandError("bad_args", `${verb} needs <${name}>`, usage.split("\n").find((line) => line.trim().startsWith(`${verb} `)));
+    if (value === undefined)
+      throw new CommandError(
+        "bad_args",
+        `${verb} needs <${name}>`,
+        usage.split("\n").find((line) => line.trim().startsWith(`${verb} `)),
+      );
     return value;
   };
   const out = values.out === undefined ? undefined : resolve(values.out);
-  if (out !== undefined && values.inline) throw new CommandError("bad_args", "--out and --inline pick opposite outputs; give one");
+  if (out !== undefined && values.inline)
+    throw new CommandError("bad_args", "--out and --inline pick opposite outputs; give one");
   // One element on the page, for commands that act on or read one.
-  const element = { ref: values.ref, selector: values.selector, role: values.role, name: values.name, exact: values.exact, nth: values.nth, label: values.label, text: values.text, frame: values.frame };
+  const element = {
+    ref: values.ref,
+    selector: values.selector,
+    role: values.role,
+    name: values.name,
+    exact: values.exact,
+    nth: values.nth,
+    label: values.label,
+    text: values.text,
+    frame: values.frame,
+  };
   const hasLocator = [values.selector, values.role, values.label, values.text].some((value) => value !== undefined);
   const refuseExtra = (allowed: number) => {
-    if (rest.length > allowed) throw new CommandError("bad_args", `${verb} takes at most ${allowed} arguments, got ${rest.length}`);
+    if (rest.length > allowed)
+      throw new CommandError("bad_args", `${verb} takes at most ${allowed} arguments, got ${rest.length}`);
   };
 
   let command: CommandName;
@@ -224,19 +278,30 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
     case "wait":
       refuseExtra(0);
       command = "wait";
-      if (values.ref !== undefined) throw new CommandError("bad_args", "wait does not take a ref", "wait for a locator, a URL or a title; refs go stale when the page changes");
+      if (values.ref !== undefined)
+        throw new CommandError(
+          "bad_args",
+          "wait does not take a ref",
+          "wait for a locator, a URL or a title; refs go stale when the page changes",
+        );
       args = { ...element, url: values.url, title: values.title, load: values.load, gone: values.gone };
       break;
     case "watch":
       refuseExtra(0);
       command = "watch";
-      args = { events: values.events, url: values.url, count: values.count === undefined ? undefined : Number(values.count) };
-      if (args.count !== undefined && (!Number.isInteger(args.count) || Number(args.count) <= 0)) throw new CommandError("bad_args", `--count must be a positive integer, got ${values.count}`);
+      args = {
+        events: values.events,
+        url: values.url,
+        count: values.count === undefined ? undefined : Number(values.count),
+      };
+      if (args.count !== undefined && (!Number.isInteger(args.count) || Number(args.count) <= 0))
+        throw new CommandError("bad_args", `--count must be a positive integer, got ${values.count}`);
       break;
     case "completions": {
       refuseExtra(1);
       const shell = need(0, "shell");
-      if (shell !== "zsh") throw new CommandError("bad_args", `completions for ${shell} are not available`, "completions zsh");
+      if (shell !== "zsh")
+        throw new CommandError("bad_args", `completions for ${shell} are not available`, "completions zsh");
       return { kind: "completions", shell };
     }
     case "network": {
@@ -253,7 +318,8 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
       } else if (action === "har") {
         refuseExtra(2);
         const harAction = need(1, "start|stop");
-        if (harAction !== "start" && harAction !== "stop") throw new CommandError("bad_args", `network har ${harAction} is not a command`, "network har start|stop");
+        if (harAction !== "start" && harAction !== "stop")
+          throw new CommandError("bad_args", `network har ${harAction} is not a command`, "network har start|stop");
         command = harAction === "start" ? "network-har-start" : "network-har-stop";
         args = { out };
       } else {
@@ -298,7 +364,12 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
         args = { site: need(1, "site"), from: values.from, chromeUserDataDir: chromeUserDataDirFrom(env) };
         break;
       }
-      if (action !== "save" && action !== "load") throw new CommandError("bad_args", `state ${action} is not a command`, "state save|load <file>, state import <site> [--from <chrome-profile>]");
+      if (action !== "save" && action !== "load")
+        throw new CommandError(
+          "bad_args",
+          `state ${action} is not a command`,
+          "state save|load <file>, state import <site> [--from <chrome-profile>]",
+        );
       command = action === "save" ? "state-save" : "state-load";
       args = { file: resolve(need(1, "file")) };
       break;
@@ -316,7 +387,8 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
     case "trace": {
       refuseExtra(1);
       const action = need(0, "start|stop");
-      if (action !== "start" && action !== "stop") throw new CommandError("bad_args", `trace ${action} is not a command`, "trace start|stop");
+      if (action !== "start" && action !== "stop")
+        throw new CommandError("bad_args", `trace ${action} is not a command`, "trace start|stop");
       command = action === "start" ? "trace-start" : "trace-stop";
       args = { out };
       break;
@@ -338,19 +410,44 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
     case "profile": {
       refuseExtra(2);
       const action = need(0, "create");
-      if (action !== "create") throw new CommandError("bad_args", `profile ${action} is not a command`, "profile create <name> --mode stealth|debug");
+      if (action !== "create")
+        throw new CommandError(
+          "bad_args",
+          `profile ${action} is not a command`,
+          "profile create <name> --mode stealth|debug",
+        );
       const name = need(1, "name");
-      if (!isValidName(name)) throw new CommandError("bad_args", `invalid profile name ${name}`, "use letters, digits, dot, dash, underscore");
-      if (values.mode === undefined || !isProfileMode(values.mode)) throw new CommandError("bad_args", `profile create needs --mode ${profileModes.join("|")}`);
+      if (!isValidName(name))
+        throw new CommandError(
+          "bad_args",
+          `invalid profile name ${name}`,
+          "use letters, digits, dot, dash, underscore",
+        );
+      if (values.mode === undefined || !isProfileMode(values.mode))
+        throw new CommandError("bad_args", `profile create needs --mode ${profileModes.join("|")}`);
       return { kind: "create-profile", profile: name, mode: values.mode, isJson: values.json };
     }
     case "session":
       if (rest[0] === "history") {
         refuseExtra(2);
-        if (rest[1] !== undefined && rest[1] !== "clear") throw new CommandError("bad_args", `session history ${rest[1]} is not a command`, "session history [--format sh|jsonl] [--out <file>], session history clear");
+        if (rest[1] !== undefined && rest[1] !== "clear")
+          throw new CommandError(
+            "bad_args",
+            `session history ${rest[1]} is not a command`,
+            "session history [--format sh|jsonl] [--out <file>], session history clear",
+          );
         const format = values.format ?? "sh";
-        if (!isHistoryFormat(format)) throw new CommandError("bad_args", `--format must be one of ${historyFormats.join(", ")}, got ${format}`);
-        return { kind: "history", profile, session: values.session ?? sessionFallback(), format, out, isClear: rest[1] === "clear", isJson: values.json };
+        if (!isHistoryFormat(format))
+          throw new CommandError("bad_args", `--format must be one of ${historyFormats.join(", ")}, got ${format}`);
+        return {
+          kind: "history",
+          profile,
+          session: values.session ?? sessionFallback(),
+          format,
+          out,
+          isClear: rest[1] === "clear",
+          isJson: values.json,
+        };
       }
       if (rest[0] === "close") {
         refuseExtra(2);
@@ -376,7 +473,8 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
       refuseExtra(1);
       const action = need(0, "status|stop|logs");
       if (action === "logs") return { kind: "logs", profile, isJson: values.json };
-      if (action !== "status" && action !== "stop") throw new CommandError("bad_args", `daemon ${action} is not a command`, "daemon status|stop|logs");
+      if (action !== "status" && action !== "stop")
+        throw new CommandError("bad_args", `daemon ${action} is not a command`, "daemon status|stop|logs");
       command = action === "status" ? "daemon-status" : "daemon-stop";
       shouldStartDaemon = false;
       break;
@@ -387,7 +485,8 @@ export function parseCli(argv: string[], env: NodeJS.ProcessEnv, sessionFallback
     case "audit": {
       refuseExtra(0);
       const count = values.count === undefined ? 20 : Number(values.count);
-      if (!Number.isInteger(count) || count <= 0) throw new CommandError("bad_args", `--count must be a positive integer, got ${values.count}`);
+      if (!Number.isInteger(count) || count <= 0)
+        throw new CommandError("bad_args", `--count must be a positive integer, got ${values.count}`);
       return { kind: "audit", count, isJson: values.json };
     }
     case undefined:
@@ -414,11 +513,16 @@ function schemaArg(raw: string): string {
 
 // These never touch the daemon: logs, audit and history read files, and a profile must exist before its
 // daemon starts.
-export async function localActionData(action: Exclude<LocalAction, { kind: "completions" | "pipe" }>): Promise<CommandData> {
+export async function localActionData(
+  action: Exclude<LocalAction, { kind: "completions" | "pipe" }>,
+): Promise<CommandData> {
   switch (action.kind) {
     case "logs": {
       const { logPath } = profilePaths(action.profile);
-      const lines = (await readFile(logPath, "utf8").catch(() => "")).split("\n").filter((line) => line !== "").slice(-50);
+      const lines = (await readFile(logPath, "utf8").catch(() => ""))
+        .split("\n")
+        .filter((line) => line !== "")
+        .slice(-50);
       return { lines, fields: { path: logPath, lines } };
     }
     case "audit": {
@@ -426,12 +530,15 @@ export async function localActionData(action: Exclude<LocalAction, { kind: "comp
       const shown = entries.slice(-action.count);
       const lines = [
         ...(entries.length === 0 ? ["no copies recorded"] : shown.map(auditLine)),
-        ...(unreadableLines.length > 0 ? [`unreadable lines in ${auditLogPathFrom()}: ${unreadableLines.join(" ")}`] : []),
+        ...(unreadableLines.length > 0
+          ? [`unreadable lines in ${auditLogPathFrom()}: ${unreadableLines.join(" ")}`]
+          : []),
       ];
       return { lines, fields: { path: auditLogPathFrom(), entries: shown, unreadableLines } };
     }
     case "create-profile": {
-      if (!isProfileMode(action.mode)) throw new CommandError("bad_args", `mode must be one of ${profileModes.join(", ")}`);
+      if (!isProfileMode(action.mode))
+        throw new CommandError("bad_args", `mode must be one of ${profileModes.join(", ")}`);
       const { mode, isNew } = await fixProfileMode(profilePaths(action.profile), action.profile, action.mode);
       const line = `${isNew ? "created" : "exists"} ${mode} profile ${action.profile}`;
       return { lines: [line], fields: { profile: action.profile, mode, isNew } };
@@ -441,19 +548,28 @@ export async function localActionData(action: Exclude<LocalAction, { kind: "comp
       const steps = await readHistory(path);
       if (action.isClear) {
         await clearHistory(path);
-        return { lines: [`cleared ${steps.length} steps from session ${action.session}`], fields: { session: action.session, clearedSteps: steps.length } };
+        return {
+          lines: [`cleared ${steps.length} steps from session ${action.session}`],
+          fields: { session: action.session, clearedSteps: steps.length },
+        };
       }
       const script = formatHistory(steps, action.format, { session: action.session, profile: action.profile });
-      if (action.out === undefined) return { lines: [script], fields: { session: action.session, format: action.format, steps, script } };
+      if (action.out === undefined)
+        return { lines: [script], fields: { session: action.session, format: action.format, steps, script } };
       await writeFile(action.out, `${script}\n`, { mode: action.format === "sh" ? 0o755 : 0o644 });
-      return { lines: [`history: ${action.out}`, `steps: ${steps.length}`], fields: { session: action.session, format: action.format, steps, path: action.out } };
+      return {
+        lines: [`history: ${action.out}`, `steps: ${steps.length}`],
+        fields: { session: action.session, format: action.format, steps, path: action.out },
+      };
     }
   }
 }
 
 function print(response: DaemonResponse, isJson: boolean): number {
   if (response.ok) {
-    process.stdout.write(isJson ? `${JSON.stringify({ ok: true, data: response.data.fields })}\n` : `${response.data.lines.join("\n")}\n`);
+    process.stdout.write(
+      isJson ? `${JSON.stringify({ ok: true, data: response.data.fields })}\n` : `${response.data.lines.join("\n")}\n`,
+    );
     return 0;
   }
   const { error } = response;
@@ -469,12 +585,15 @@ async function main(argv: string[]): Promise<number> {
   if (argv[0] === "__daemon") {
     const profileFlagIndex = argv.indexOf("--profile");
     const profile = profileFlagIndex === -1 ? "stealth" : argv[profileFlagIndex + 1];
-    if (profile === undefined || !isValidName(profile)) throw new Error(`__daemon needs a valid --profile, got ${String(profile)}`);
+    if (profile === undefined || !isValidName(profile))
+      throw new Error(`__daemon needs a valid --profile, got ${String(profile)}`);
     // Loaded here only: Patchright takes most of a CLI call's startup time, and clients never need it.
     const { isClosedTargetRejection, runDaemon } = await import("./daemon.ts");
     process.on("unhandledRejection", (reason) => {
       if (!isClosedTargetRejection(reason)) throw reason;
-      process.stdout.write(`${new Date().toISOString()} ignored a rejection from a closed target: ${String(reason).split("\n")[0]}\n`);
+      process.stdout.write(
+        `${new Date().toISOString()} ignored a rejection from a closed target: ${String(reason).split("\n")[0]}\n`,
+      );
     });
     await runDaemon(profile);
     return new Promise(() => {});
@@ -490,7 +609,12 @@ async function main(argv: string[]): Promise<number> {
           process.stdout.write(zshCompletionScript);
           return 0;
         case "pipe":
-          return await runPipe({ input: process.stdin, output: process.stdout, runner: new CommandRunner(process.env, () => parsed.session), isBail: parsed.isBail });
+          return await runPipe({
+            input: process.stdin,
+            output: process.stdout,
+            runner: new CommandRunner(process.env, () => parsed.session),
+            isBail: parsed.isBail,
+          });
         case "logs":
         case "audit":
         case "create-profile":
