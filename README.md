@@ -28,13 +28,13 @@ patchrome text
 - **Scriptable.** Explore a site with an agent, then `session history` exports what worked as a sh
   script with refs rewritten as role and name locators. `patchrome pipe` runs JSON requests from any
   language over one connection, and `import { connect } from "patchrome"` does the same in Node.
-- **Stays out of your way.** Tabs open in the background, and agents work in them while you use the Mac.
+- **Stays out of your way.** Tabs open in the background, and agents work in them while you use your desktop.
   When the daemon first starts Chrome, macOS brings it forward for under a second, and patchrome hands
-  focus back to the app you were in.
+  focus back to the app you were in. Linux leaves window activation to the desktop environment.
 
 > [!NOTE]
 > Early software. The core loop, network capture, scraping, the debug profile and scripting work
-> (milestones M1 to M5 below). macOS is the only platform tested so far.
+> (milestones M1 to M5 below). macOS and desktop Linux are supported.
 
 ## Why
 
@@ -63,7 +63,7 @@ errors, traces and raw CDP, and it lets chrome-devtools-mcp attach for Lighthous
 
 ## Requirements
 
-- macOS (Linux untested, Windows and WSL not supported yet)
+- macOS or desktop Linux. Windows and WSL are not supported yet.
 - Node.js 24.2 or newer. A checkout runs the TypeScript sources through Node's type stripping. Node
   refuses to strip types under `node_modules`, so the package ships JavaScript compiled into `dist/`.
 - Google Chrome installed in the usual place
@@ -383,8 +383,8 @@ covers its subdomains.
 The import copies the profile's cookie jar, its localStorage, and the site's IndexedDB into a
 temporary folder, opens the copy in a headless Chrome whose network is routed to empty pages, and
 reads the site's cookies and storage. The copy is deleted afterwards, and your everyday Chrome can keep
-running. Cookies are encrypted with Chrome's key in the macOS Keychain, so the reader Chrome runs
-without Playwright's mock keychain. Cookies go in next to the ones already there. localStorage items
+running. Cookies are encrypted with Chrome's OS credential-store key, so the reader Chrome runs
+without Playwright's mock credential store. Cookies go in next to the ones already there. localStorage items
 are added, and each imported IndexedDB database replaces the one with the same name.
 
 ### Approving login copies
@@ -483,7 +483,7 @@ terms. You are responsible for what your agents do with it.
   cookies, session folder pruning, an installable npm package.
 - **M5, scripting** (done): locators, `--inline` and `--out`, `network get --url`, `pipe`, session
   history with refs rewritten as locators, the Node library, and examples in sh, Python, Node and Go.
-- **Later:** Linux and WSL.
+- **Later:** WSL.
 
 ## Development
 
@@ -495,7 +495,7 @@ npm run typecheck
 npm test                  # unit tests plus integration tests against a local fixture server
 ```
 
-The integration tests start a real headed Chrome. They cover:
+The integration tests start a real headed Chrome. Linux CI runs it under Xvfb. They cover:
 
 - 3 CLI processes starting the daemon at once
 - concurrent sessions, popups, `tab_gone` and `ref_stale`

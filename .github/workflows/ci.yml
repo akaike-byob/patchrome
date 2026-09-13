@@ -14,9 +14,13 @@ concurrency:
 
 jobs:
   check:
-    name: Format, lint, typecheck, unit tests, build
-    runs-on: macos-latest
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -32,14 +36,15 @@ jobs:
       - run: npm pack --dry-run
 
   integration:
-    name: Integration tests (${{ matrix.shard }}/3)
-    # The tests drive a headed Chrome, and patchrome supports macOS only; GitHub's macOS runners ship Chrome.
+    name: Integration tests (${{ matrix.os }}, ${{ matrix.shard }}/3)
+    # The tests drive a headed Chrome. Linux runs it in Xvfb because GitHub runners have no desktop session.
     # Each shard gets its own runner, so the Chromes never compete for one machine's CPU.
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        os: [macos-latest, ubuntu-latest]
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,7 +53,10 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run test:integration -- --shard=${{ matrix.shard }}/3
+      - if: runner.os == 'macOS'
+        run: npm run test:integration -- --shard=${{ matrix.shard }}/3
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:integration -- --shard=${{ matrix.shard }}/3
 
   secrets:
     name: Secret scan

@@ -79,7 +79,8 @@ describe("state import from the everyday Chrome", () => {
     });
 
     // A different session sees the login, because the profile is shared.
-    expect((await runCli(home, "reader", ["open", `${fixture.origin}/form`])).json).toMatchObject({ ok: true });
+    const opened = await runCli(home, "reader", ["open", `${fixture.origin}/form`]);
+    expect(opened.json, opened.stderr).toMatchObject({ ok: true });
     const cookies = await runCli(home, "reader", ["cookies"]);
     expect(cookies.json.data?.cookies).toEqual([
       expect.objectContaining({ name: "sid", value: "from-chrome", domain: "127.0.0.1" }),

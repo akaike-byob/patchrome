@@ -162,7 +162,7 @@ export class PatchrightEngine implements BrowserEngine {
     const reader = await chromium.launchPersistentContext(copyUserDataDir, {
       channel: "chrome",
       headless: true,
-      // The everyday profile encrypts cookies with the OS keychain key. Under Playwright's mock keychain Chrome
+      // The everyday profile encrypts cookies with the OS credential store. Under Playwright's mock store Chrome
       // cannot decrypt them and deletes them from the copy.
       ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"],
     });
