@@ -22,14 +22,14 @@ describe("wait, watch and session patterns", () => {
     expect((await runCli(home, "waiter", ["open", `${fixture.origin}/challenge`])).json.data?.title).toBe(
       "Prove your humanity",
     );
-    const notYet = await runCli(home, "waiter", ["--timeout-ms", "1", "wait", "--selector", "#posts li"]);
-    expect(notYet.json.error?.code).toBe("timeout");
     const waited = await runCli(home, "waiter", ["wait", "--title", "Prove your humanity", "--gone"]);
     expect(waited.json).toMatchObject({ ok: true, data: { title: "programming" } });
     // A 1 ms timeout passes only when the wait reads the element as already visible instead of waiting for it.
     // A time budget on waitedMs would fail on a loaded runner, where Chrome can take 1.8 s to answer one CDP call.
     const posts = await runCli(home, "waiter", ["--timeout-ms", "1", "wait", "--selector", "#posts li"]);
     expect(posts.json, posts.stdout + posts.stderr).toMatchObject({ ok: true });
+    const missing = await runCli(home, "waiter", ["--timeout-ms", "1", "wait", "--selector", "#posts li.never"]);
+    expect(missing.json.error?.code).toBe("timeout");
   });
 
   it("fails a wait with timeout and says where the tab is", async () => {
