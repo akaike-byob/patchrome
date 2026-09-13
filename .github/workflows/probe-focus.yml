@@ -23,13 +23,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: |
-          open -a TextEdit
-          sleep 3
-          .github/probe/front-log.sh > front.log &
-          sleep 1
-          PROBE_MARKS=$PWD/marks.log npx vitest run test/integration --config .github/probe/vitest.probe.config.ts --shard=${{ matrix.shard }}/3 > vitest.log 2>&1 || true
-          grep -E "×|Tests " vitest.log || true
-          grep -A40 "FAIL " vitest.log | head -120 || true
-          sleep 2
-          kill %1
-          python3 .github/probe/summarize.py front.log marks.log
+          for i in 1 2 3 4 5 6; do
+            echo "=== attempt $i"
+            DEBUG=pw:api npx vitest run test/integration/wait-watch.test.ts -t "interstitial" > vitest.log 2>&1 || true
+            grep -E "×|✓ .*interstitial|expected" vitest.log || true
+            for log in "$TMPDIR"/patchrome-wait-*/stealth/daemon.log; do
+              grep -E "waiter|isVisible|waitFor|title|locator|=> " "$log" | grep -v "^\s*$" | tail -40
+            done
+            rm -rf "$TMPDIR"/patchrome-wait-*
+          done
