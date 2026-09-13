@@ -72,6 +72,7 @@ describe("daemon lifecycle", () => {
   it("exits after the idle timeout and removes its socket", async () => {
     const idleHome = makeHome("idle");
     const opened = await runCli(idleHome, "s", ["open"], { PATCHROME_IDLE_MS: "3000" });
+    console.log("DEBUG idle", JSON.stringify(opened));
     expect(opened.json).toMatchObject({ ok: true });
     const socketPath = join(idleHome, "stealth", "daemon.sock");
     expect(existsSync(socketPath)).toBe(true);

@@ -68,7 +68,9 @@ describe("daemon restart and isolation", () => {
     const pid = (await runCli(home, "keeper", ["daemon", "status"])).json.data?.pid as number;
     await runCli(home, "keeper", ["daemon", "stop"]);
     await waitForExit(pid);
-    const tabs = (await runCli(home, "keeper", ["tabs"])).json.data?.tabs as TabRow[];
+    const tabsRes = await runCli(home, "keeper", ["tabs"]);
+    console.log("DEBUG restart", JSON.stringify(tabsRes));
+    const tabs = tabsRes.json.data?.tabs as TabRow[];
     expect(tabs.map((tab) => tab.id)).toEqual(["t1", "t2"]);
     expect((await runCli(home, "closer", ["tabs"])).json.data?.tabs).toEqual([]);
   });
