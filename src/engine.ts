@@ -42,8 +42,9 @@ export interface BrowserEngine {
 }
 
 const pageOpenTimeoutMs = 15_000;
-// Chrome can raise its window shortly after launch resolves.
-const focusGraceMs = 3_000;
+// Chrome activates 400-800ms into launch, before launch resolves. A longer grace sends the user's own
+// Dock clicks on Chrome back to the previous app.
+const focusGraceMs = 500;
 const devToolsPortWaitMs = 10_000;
 const extensionWorkerWaitMs = 10_000;
 // src/ and dist/ both sit one level below the package root, next to extension/.
