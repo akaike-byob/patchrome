@@ -125,6 +125,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
 
   const resetIdleTimer = () => {
     clearTimeout(idleTimer);
+    // A request can arrive while startup is still awaiting after listen, before startup arms the timer.
+    if (inFlightRequests > 0) return;
     idleTimer = setTimeout(() => void shutdown(`idle for ${idleMs} ms`), idleMs);
   };
 
@@ -183,7 +185,7 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
       clearTimeout(idleTimer);
       void respond(socket, line, disconnected.signal).finally(() => {
         inFlightRequests -= 1;
-        if (inFlightRequests === 0) resetIdleTimer();
+        resetIdleTimer();
       });
     });
     socket.on("error", () => {});
