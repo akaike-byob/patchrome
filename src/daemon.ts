@@ -9,6 +9,7 @@ import { detectHostPlatform } from "./host-platform.ts";
 import { hostPromptsFor } from "./host-prompts.ts";
 import { restoreSession, runCommand, type CommandContext } from "./commands.ts";
 import { PatchrightEngine, type BrowserEngine } from "./engine.ts";
+import { PopupFocusReturn } from "./focus.ts";
 import { PageDiagnostics } from "./diagnostics.ts";
 import { SessionEvents } from "./events.ts";
 import { NetworkLog } from "./network.ts";
@@ -31,6 +32,9 @@ import { parseJsonInput } from "./validate.ts";
 
 // Integration tests run a daemon inside the test process, where code answers the copy prompt. Neither option
 // can be set from outside: the `__daemon` entrypoint passes none, so a spawned daemon always asks a person.
+// Chrome takes the front before Playwright reports a popup, and on a loaded machine up to a few hundred ms after.
+const popupFocusGraceMs = 1_000;
+
 export interface DaemonOptions {
   prompts?: HostPrompts;
   exitProcess?: (code: number) => void;
@@ -102,33 +106,38 @@ export async function runDaemon(
     });
     return regrouped;
   };
-  const registry = new SessionRegistry((tab) => {
-    network.record(tab);
-    routes.track(tab);
-    tab.page.on("framenavigated", (frame) => {
-      if (frame === tab.page.mainFrame())
-        events.publish(tab.session, { kind: "navigation", tabId: tab.id, url: frame.url(), atMs: Date.now() });
-    });
-    tab.page.on("load", () =>
-      events.publish(tab.session, { kind: "load", tabId: tab.id, url: tab.page.url(), atMs: Date.now() }),
-    );
-    void regroupTabs(tab.session);
-    switch (mode) {
-      case "stealth":
-        break;
-      case "debug":
-        consoleCaptureByTab.set(
-          tab,
-          engine
-            .openCdpSession(tab.page)
-            .then((cdp) => diagnostics.record(tab, cdp))
-            .catch((err: unknown) => {
-              log(`console capture failed for ${tab.id}: ${String(err)}`);
-            }),
-        );
-        break;
-    }
-  }, scheduleSessionsSave);
+  const popupFocusReturn = new PopupFocusReturn(popupFocusGraceMs);
+  const registry = new SessionRegistry(
+    (tab) => {
+      network.record(tab);
+      routes.track(tab);
+      tab.page.on("framenavigated", (frame) => {
+        if (frame === tab.page.mainFrame())
+          events.publish(tab.session, { kind: "navigation", tabId: tab.id, url: frame.url(), atMs: Date.now() });
+      });
+      tab.page.on("load", () =>
+        events.publish(tab.session, { kind: "load", tabId: tab.id, url: tab.page.url(), atMs: Date.now() }),
+      );
+      void regroupTabs(tab.session);
+      switch (mode) {
+        case "stealth":
+          break;
+        case "debug":
+          consoleCaptureByTab.set(
+            tab,
+            engine
+              .openCdpSession(tab.page)
+              .then((cdp) => diagnostics.record(tab, cdp))
+              .catch((err: unknown) => {
+                log(`console capture failed for ${tab.id}: ${String(err)}`);
+              }),
+          );
+          break;
+      }
+    },
+    scheduleSessionsSave,
+    () => void popupFocusReturn.returnAfterPopup(),
+  );
   registry.reserveTabIds([...awaitingRestore.values()].flatMap((saved) => saved.tabs.map((tab) => tab.id)));
   const buildId = currentBuildId();
   const version = buildId.split("+")[0] ?? buildId;
@@ -265,6 +274,8 @@ export async function runDaemon(
     } catch (err) {
       return send(socket, { id: -1, ok: false, error: toCommandError(err).toBody() });
     }
+
+    popupFocusReturn.noteRequestArrived();
 
     // status and stop still work, so an outdated daemon can be inspected and replaced.
     if (request.buildId !== buildId && request.command !== "daemon-status" && request.command !== "daemon-stop") {
