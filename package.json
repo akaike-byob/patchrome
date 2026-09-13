@@ -1,6 +1,6 @@
 {
   "name": "patchrome",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stealth shared-browser CLI for coding agents: one Patchright Chrome, a tab set per agent session",
   "homepage": "https://github.com/akaike-byob/patchrome#readme",
   "bugs": {
