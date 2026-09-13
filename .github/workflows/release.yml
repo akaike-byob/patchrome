@@ -1,44 +1,40 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+# Queued, never cancelled: a cancelled run could leave a tag without its npm version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  publish:
-    name: Publish to npm
+  release:
+    name: Release to npm
     runs-on: macos-latest
     timeout-minutes: 15
     environment: npm
     permissions:
-      contents: read
+      # semantic-release pushes the version tag and creates the GitHub release.
+      contents: write
       # npm trusted publishing exchanges this OIDC token for a one-time publish credential and signs provenance.
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # semantic-release reads every tag and the commits since the last one to pick the next version.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          registry-url: https://registry.npmjs.org
-      - name: Check the tag matches package.json
-        run: |
-          expected="v$(node -p 'require("./package.json").version')"
-          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
-            echo "Release tag $GITHUB_REF_NAME does not match package.json version $expected"
-            exit 1
-          fi
+          cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
-      # The first version went out by hand, before npm allowed a trusted publisher on the package.
-      - name: Publish unless this version is already on npm
-        run: |
-          spec="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
-          if npm view "$spec" version > /dev/null 2>&1; then
-            echo "$spec is already on npm, nothing to publish"
-          else
-            npm publish --access public
-          fi
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
