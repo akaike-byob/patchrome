@@ -1,2 +1,2 @@
 # Formatting-only commits, skipped by git blame
-190758d19610996e624249a527cc701eb7cf182c # Format with oxfmt
+3f8ed3cb2bc006982e57e3cac4f97cbbcfc45366 # Lint with oxlint and format with oxfmt (#5)
