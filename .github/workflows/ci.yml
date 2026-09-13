@@ -41,16 +41,27 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: |
-          fails=0
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if ! npx vitest run test/integration/hardening.test.ts > "run-$i.txt" 2>&1; then
-              fails=$((fails+1)); echo "=== run $i failed"; grep -E "×|Error" "run-$i.txt"
-              for f in "$TMPDIR"/patchrome-hardening-*/stealth/daemon.log; do echo "--- $f"; cat "$f"; done
-            else echo "=== run $i passed"; fi
-            rm -rf "$TMPDIR"/patchrome-*
+      - name: Loop the restart tests until one fails
+        env:
+          DEBUG: pw:protocol,pw:browser
+        run: |
+          set +e
+          mkdir -p failure
+          for i in $(seq 1 15); do
+            if npx vitest run test/integration/hardening.test.ts > "run-$i.txt" 2>&1; then
+              echo "=== run $i passed"; rm -rf "$TMPDIR"/patchrome-*
+            else
+              echo "=== run $i failed"; grep -E "×" "run-$i.txt"
+              cp "run-$i.txt" failure/; cp -R "$TMPDIR"/patchrome-hardening-* failure/ 2>/dev/null
+              find failure -name "Singleton*" -delete; rm -rf failure/*/stealth/chrome-profile
+              exit 1
+            fi
           done
-          echo "failures: $fails"
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restart-failure
+          path: failure
 
   secrets:
     name: Secret scan
