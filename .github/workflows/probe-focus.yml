@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        file: [sessions, hardening]
+        file: [sessions, hardening, restart-repro]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -22,7 +22,17 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: |
+      - if: matrix.file == 'restart-repro'
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            echo "=== attempt $i"
+            npx vitest run test/integration/hardening.test.ts -t "after the daemon is killed" 2>&1 | grep -E "✓|×|ok|error|Tests " || true
+            for log in "$TMPDIR"/patchrome-hardening-*/stealth/daemon.log; do echo "--- $log"; cat "$log"; done
+            pkill -f "Google Chrome for Testing|patchrome-hardening" || true
+            rm -rf "$TMPDIR"/patchrome-hardening-*
+          done
+      - if: matrix.file != 'restart-repro'
+        run: |
           open -a TextEdit
           sleep 3
           .github/probe/front-log.sh > front.log &
