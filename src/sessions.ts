@@ -46,12 +46,18 @@ export class SessionRegistry {
   #nextTabNumber = 1;
   #onTabAdopted: (tab: Tab) => void;
   #onChanged: () => void;
+  #onPopupAdopted: () => void;
 
-  // The daemon hangs network recording and routes off onTabAdopted, so popups get them too, and saves
-  // sessions.json on onChanged.
-  constructor(onTabAdopted: (tab: Tab) => void = () => {}, onChanged: () => void = () => {}) {
+  // The daemon hangs network recording and routes off onTabAdopted, so popups get them too, saves
+  // sessions.json on onChanged, and returns focus to the user's app on onPopupAdopted.
+  constructor(
+    onTabAdopted: (tab: Tab) => void = () => {},
+    onChanged: () => void = () => {},
+    onPopupAdopted: () => void = () => {},
+  ) {
     this.#onTabAdopted = onTabAdopted;
     this.#onChanged = onChanged;
+    this.#onPopupAdopted = onPopupAdopted;
   }
 
   // A restored tab keeps the id it had before the daemon restarted, so an agent's `switch t3` still works.
@@ -86,6 +92,7 @@ export class SessionRegistry {
     // A popup belongs to the session whose page opened it, and does not become current by itself.
     page.on("popup", (popup) => {
       this.adoptPage(sessionName, popup, false);
+      this.#onPopupAdopted();
     });
     this.#onTabAdopted(tab);
     this.#onChanged();
