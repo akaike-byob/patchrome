@@ -74,11 +74,17 @@ export async function waitForCondition(page: Page, condition: WaitCondition, tim
   switch (condition.kind) {
     case "load":
       return page.waitForLoadState(condition.state, { timeout: timeoutMs });
-    case "element":
-      return elementLocator(page, condition.locator).waitFor({
+    case "element": {
+      const locator = elementLocator(page, condition.locator);
+      // On a macOS CI runner waitFor took over a second to report an element that was already visible.
+      // One direct read answers that case at once; a bad locator falls through so waitFor reports it.
+      const isVisible = await locator.isVisible().catch(() => undefined);
+      if (isVisible !== undefined && isVisible !== condition.isGone) return;
+      return locator.waitFor({
         state: condition.isGone ? "hidden" : "visible",
         timeout: timeoutMs,
       });
+    }
     case "url":
       await page.waitForURL((url) => urlGlobMatches(condition.glob, url.href) !== condition.isGone, {
         timeout: timeoutMs,
