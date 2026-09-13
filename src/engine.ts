@@ -194,16 +194,23 @@ export class PatchrightEngine implements BrowserEngine {
     const context = this.#requireContext();
     const marker = `about:blank#patchrome-${randomUUID()}`;
     const pagePromise = context.waitForEvent("page", {
-      predicate: (page) => { process.stdout.write(`${new Date().toISOString()} PAGEEVENT want=${marker} got=${page.url()}\n`); return page.url() === marker; },
+      predicate: (page) => page.url() === marker,
       timeout: pageOpenTimeoutMs,
     });
-    process.stdout.write(`${new Date().toISOString()} CREATETARGET ${marker}\n`);
-    await this.#requireBrowserCdp().send("Target.createTarget", {
+    const startedAtMs = Date.now();
+    const { targetId } = await this.#requireBrowserCdp().send("Target.createTarget", {
       url: marker,
       background: isBackground,
       ...(browserContextId === undefined ? {} : { browserContextId }),
     });
-    return pagePromise;
+    process.stdout.write(`${new Date().toISOString()} DIAG created ${targetId} in ${Date.now() - startedAtMs} ms\n`);
+    return pagePromise.catch(async (err: unknown) => {
+      const { targetInfos } = await this.#requireBrowserCdp().send("Target.getTargets", {});
+      process.stdout.write(`${new Date().toISOString()} DIAG stuck target: ${JSON.stringify(targetInfos.find((info) => info.targetId === targetId))}\n`);
+      process.stdout.write(`${new Date().toISOString()} DIAG all targets: ${JSON.stringify(targetInfos.map((info) => [info.type, info.url.slice(0, 80), info.attached]))}\n`);
+      process.stdout.write(`${new Date().toISOString()} DIAG playwright pages: ${JSON.stringify(context.pages().map((page) => page.url()))}\n`);
+      throw err;
+    });
   }
 
   // The extension API names tabs by its own ids; CDP target ids are the only id both sides share.

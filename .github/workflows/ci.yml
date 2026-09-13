@@ -42,8 +42,6 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Loop the restart tests until one fails
-        env:
-          DEBUG: pw:protocol,pw:browser
         run: |
           set +e
           mkdir -p failure
@@ -51,7 +49,7 @@ jobs:
             if npx vitest run test/integration/hardening.test.ts > "run-$i.txt" 2>&1; then
               echo "=== run $i passed"; rm -rf "$TMPDIR"/patchrome-*
             else
-              echo "=== run $i failed"; grep -E "×" "run-$i.txt"
+              echo "=== run $i failed"; grep -E "FAIL" "run-$i.txt"
               cp "run-$i.txt" failure/; cp -R "$TMPDIR"/patchrome-hardening-* failure/ 2>/dev/null
               find failure -name "Singleton*" -delete; rm -rf failure/*/stealth/chrome-profile
               exit 1
