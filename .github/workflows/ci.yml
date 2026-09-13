@@ -42,6 +42,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:integration
+      - if: failure()
+        run: for f in "${TMPDIR:-/tmp}"/patchrome-*/*/daemon.log; do echo "=== $f"; cat "$f"; done
 
   secrets:
     name: Secret scan
