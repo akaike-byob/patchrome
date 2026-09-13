@@ -485,6 +485,8 @@ terms. You are responsible for what your agents do with it.
 
 ```bash
 npm install
+npm run format:check    # oxfmt; markdown is left as written
+npm run lint            # oxlint, type-aware
 npm run typecheck
 npm test                  # unit tests plus integration tests against a local fixture server
 ```
