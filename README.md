@@ -1,5 +1,9 @@
 # patchrome
 
+[![npm](https://img.shields.io/npm/v/patchrome)](https://www.npmjs.com/package/patchrome)
+[![CI](https://github.com/akaike-byob/patchrome/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/akaike-byob/patchrome/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/patchrome)](LICENSE)
+
 One stealth Chrome, shared by all your coding agents. Each agent session gets its own tabs.
 
 patchrome is a command-line browser for Claude Code, Codex, pi and humans in a terminal. A small
@@ -479,7 +483,7 @@ terms. You are responsible for what your agents do with it.
   cookies, session folder pruning, an installable npm package.
 - **M5, scripting** (done): locators, `--inline` and `--out`, `network get --url`, `pipe`, session
   history with refs rewritten as locators, the Node library, and examples in sh, Python, Node and Go.
-- **Later:** publish to npm, Linux and WSL.
+- **Later:** Linux and WSL.
 
 ## Development
 
