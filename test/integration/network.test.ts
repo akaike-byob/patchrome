@@ -39,7 +39,7 @@ describe("network, routes, extract and state", () => {
 
     const fetches = await runCli(home, "net", ["network", "list", "--type", "fetch"]);
     const requests = fetches.json.data?.requests as RequestSummary[];
-    expect(requests.map((request) => new URL(request.url).pathname).sort()).toEqual(["/api/items", "/api/missing"]);
+    expect(requests.map((request) => new URL(request.url).pathname).toSorted()).toEqual(["/api/items", "/api/missing"]);
 
     const notFound = await runCli(home, "net", ["network", "list", "--status", "4xx"]);
     expect((notFound.json.data?.requests as RequestSummary[]).map((request) => request.url)).toEqual([`${fixture.origin}/api/missing`]);

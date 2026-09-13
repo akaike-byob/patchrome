@@ -66,7 +66,7 @@ describe("parseCli", () => {
   });
 
   it("rejects unknown flags", () => {
-    expect(() => parse(["tabs", "--everything"])).toThrow();
+    expect(() => parse(["tabs", "--everything"])).toThrow("Unknown option '--everything'");
   });
 });
 

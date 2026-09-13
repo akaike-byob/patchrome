@@ -59,6 +59,6 @@ describe("Chrome profiles", () => {
     const leveldbDir = mkdtempSync(join(tmpdir(), "patchrome-leveldb-"));
     writeFileSync(join(leveldbDir, "000003.log"), Buffer.concat([Buffer.from([0, 1, 7]), Buffer.from("META:https://app.example.com\u0000\u0008_https://app.example.com\u0000\u0001token"), Buffer.from("META:http://127.0.0.1:9000\u0001")]));
     writeFileSync(join(leveldbDir, "MANIFEST-000001"), "META:https://ignored.example.com");
-    expect((await localStorageOrigins(leveldbDir)).sort()).toEqual(["http://127.0.0.1:9000", "https://app.example.com"]);
+    expect((await localStorageOrigins(leveldbDir)).toSorted()).toEqual(["http://127.0.0.1:9000", "https://app.example.com"]);
   });
 });

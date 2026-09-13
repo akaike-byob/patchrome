@@ -169,7 +169,7 @@ export function helperFailure(helper: string, err: unknown): string {
   const failure = err as NodeJS.ErrnoException & { signal?: string | null; killed?: boolean };
   if (failure.code === "ENOENT") return `${helper} not found`;
   if (failure.killed === true || failure.signal) return `${helper} stopped by ${failure.signal ?? "timeout"}`;
-  const stderr = String((err as { stderr?: unknown }).stderr ?? "").trim().split("\n")[0];
+  const stderr = ((err as { stderr?: string | Buffer }).stderr ?? "").toString().trim().split("\n")[0];
   return `${helper} exited with ${String(failure.code)}${stderr ? `: ${stderr}` : ""}`;
 }
 

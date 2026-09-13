@@ -132,13 +132,13 @@ export class PatchrightEngine implements BrowserEngine {
   async groupTabs(pages: Page[], title: string, color: TabGroupColor): Promise<void> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
     const worker = await this.#tabGroupsWorker();
-    await evaluateInWorker(worker, ({ targetIds, title, color }) => (globalThis as unknown as TabGroupsWorker).patchromeGroupTabs({ targetIds, title, color }), { targetIds, title, color });
+    await evaluateInWorker(worker, (request) => (globalThis as unknown as TabGroupsWorker).patchromeGroupTabs(request), { targetIds, title, color });
   }
 
   async describeTabGroups(pages: Page[]): Promise<TabGroupSummary[]> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
     const worker = await this.#tabGroupsWorker();
-    return evaluateInWorker(worker, ({ targetIds }) => (globalThis as unknown as TabGroupsWorker).patchromeDescribeTabGroups({ targetIds }), { targetIds });
+    return evaluateInWorker(worker, (request) => (globalThis as unknown as TabGroupsWorker).patchromeDescribeTabGroups(request), { targetIds });
   }
 
   async readProfileCopy(copyUserDataDir: string, origins: string[]): Promise<{ cookies: Cookie[]; origins: OriginStorage[] }> {
@@ -260,6 +260,7 @@ interface TabGroupsWorker {
 
 // Patchright evaluates in an isolated world by default, where the extension's globals do not exist.
 function evaluateInWorker<Arg, Result>(worker: Worker, fn: (arg: Arg) => Promise<Result>, arg: Arg): Promise<Result> {
+  // oxlint-disable-next-line typescript/unbound-method -- called with worker as this on the next line
   const evaluate = worker.evaluate as unknown as (fn: (arg: Arg) => Promise<Result>, arg: Arg, isolatedContext: boolean) => Promise<Result>;
   return evaluate.call(worker, fn, arg, false);
 }

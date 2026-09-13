@@ -39,7 +39,7 @@ export interface ProtocolSchema {
 export function parseProtocolSchema(raw: string): ProtocolSchema {
   // Only the list is checked: the members' shape is Chrome's, and help prints whatever fields it finds.
   const { domains } = parseJsonInput(z.object({ domains: z.array(z.looseObject({ domain: z.string() })) }), raw, "the browser's /json/protocol");
-  return { domains: domains as ProtocolDomain[] };
+  return { domains };
 }
 
 // No topic lists domains, `Page` lists its commands and events, `Page.navigate` describes one of them.

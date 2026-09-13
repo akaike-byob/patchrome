@@ -119,7 +119,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     await saveSessionsNow();
     isSavingSessions = false;
     await engine.close().catch((err) => log(`engine close failed: ${String(err)}`));
-    (options.exitProcess ?? process.exit)(0);
+    if (options.exitProcess) options.exitProcess(0);
+    else process.exit(0);
   };
 
   const resetIdleTimer = () => {
@@ -301,7 +302,7 @@ const requestSchema = z.object({
 });
 
 function parseRequest(line: string): DaemonRequest {
-  return parseJsonInput(requestSchema, line, "request") as DaemonRequest;
+  return parseJsonInput(requestSchema, line, "request");
 }
 
 function toCommandError(err: unknown): CommandError {

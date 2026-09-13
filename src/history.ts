@@ -101,7 +101,7 @@ export function stepArgv(argv: string[]): string[] {
   for (const token of tokens) {
     if (token.kind !== "option" || !callerFlags.has(token.name)) continue;
     dropped.add(token.index);
-    if (token.value !== undefined && token.inlineValue === false) dropped.add(token.index + 1);
+    if (token.value !== undefined && !token.inlineValue) dropped.add(token.index + 1);
   }
   return argv.filter((_, index) => !dropped.has(index));
 }
@@ -120,7 +120,7 @@ export function replayStep(command: CommandName, argv: string[], hint: ReplayHin
     const refPositional = positionals.find((token) => /^@?(?:f\d+)?e\d+$/.test(token.value));
     if (refOption !== undefined && refOption.kind === "option" && refOption.value !== undefined) {
       replacements.set(refOption.index, hint.refLocator.flags);
-      if (refOption.inlineValue === false) replacements.set(refOption.index + 1, []);
+      if (!refOption.inlineValue) replacements.set(refOption.index + 1, []);
     } else if (refPositional !== undefined) {
       replacements.set(refPositional.index, hint.refLocator.flags);
     }

@@ -95,7 +95,7 @@ export async function copySiteLoginStorage(profileDir: string, site: string, cop
       await cp(source(`WebStorage/${bucketId}`), join(target, "WebStorage", String(bucketId)), { recursive: true, filter: skipLock }).catch(ignoreMissing);
     }
   }
-  return [...origins].sort();
+  return [...origins].toSorted();
 }
 
 function ignoreMissing(err: unknown): void {

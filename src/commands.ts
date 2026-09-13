@@ -181,6 +181,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const isMainWorld = args.mainWorld === true;
       // Patchright's 4th evaluate argument picks the world; the isolated world hides page globals but
       // leaves no trace in the page's own JS realm.
+      // oxlint-disable-next-line typescript/unbound-method -- called with tab.page as this on the next line
       const evaluate = tab.page.evaluate as unknown as (fn: string, arg: undefined, options: undefined, isolatedContext: boolean) => Promise<unknown>;
       const value = await guardTab(tab, () => evaluate.call(tab.page, expression, undefined, undefined, !isMainWorld));
       // JSON has no undefined, so an expression without a value comes back as null.
@@ -220,16 +221,16 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const finished = new Promise<"count" | "timeout" | "disconnected">((resolve) => {
         finish = resolve;
       });
-      const deliver = (event: WatchEvent) => {
+      const deliverEvent = (event: WatchEvent) => {
         if (!kinds.has(event.kind) || (limit !== undefined && count >= limit)) return;
         if (urlGlob !== undefined && !urlGlobMatches(urlGlob, urlOfEvent(event) ?? "")) return;
         count++;
         call.emit({ line: watchEventLine(event), fields: watchEventFields(event) });
         if (limit !== undefined && count >= limit) finish("count");
       };
-      const unsubscribe = ctx.events.subscribe(session, deliver);
+      const unsubscribe = ctx.events.subscribe(session, deliverEvent);
       const stopConsole = kinds.has("console")
-        ? ctx.diagnostics.follow(session, (message) => deliver({ kind: "console", tabId: message.tabId, message, atMs: message.atMs }))
+        ? ctx.diagnostics.follow(session, (message) => deliverEvent({ kind: "console", tabId: message.tabId, message, atMs: message.atMs }))
         : () => {};
       const timer = setTimeout(() => finish("timeout"), timeoutMs);
       call.disconnected.addEventListener("abort", () => finish("disconnected"), { once: true });
@@ -354,7 +355,8 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const lines = cookies.map((cookie) => `${cookie.domain} ${cookie.path} ${cookie.name}${cookie.expires > 0 ? ` expires ${new Date(cookie.expires * 1000).toISOString()}` : " session"}`);
       const written = await deliver(ctx, session, args, { field: "cookies", value: cookies, content: JSON.stringify(cookies, null, 2), prefix: "cookies", extension: "json" });
       // Plain output lists cookies without their values; the values are in --json and the file.
-      const shown = written.fields.path === undefined ? lines : [`json: ${String(written.fields.path)}`];
+      const { path } = written.fields;
+      const shown = typeof path === "string" ? [`json: ${path}`] : lines;
       return { lines: [`cookies: ${cookies.length}`, ...shown], fields: { count: cookies.length, ...written.fields } };
     }
     case "state-save": {
@@ -544,7 +546,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
         isAwaitingRestore: false,
       }));
       const saved = ctx.savedSessionNames().filter(matches).map((name) => ({ session: name, label: undefined, tabCount: 0, isIsolated: false, isAwaitingRestore: true }));
-      const all = [...live, ...saved].sort((a, b) => a.session.localeCompare(b.session));
+      const all = [...live, ...saved].toSorted((a, b) => a.session.localeCompare(b.session));
       if (pattern !== undefined && all.length === 0) throw new CommandError("bad_args", `no session matches ${pattern}`, "run `patchrome sessions` to list them");
       return {
         lines: all.length === 0 ? ["no sessions"] : all.map((entry) => `${entry.session} ${entry.isAwaitingRestore ? "saved, reopens on its next command" : `${entry.tabCount} tabs${entry.isIsolated ? " isolated" : ""}`}${entry.label === undefined ? "" : ` label: ${entry.label}`}`),
@@ -568,7 +570,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const saved = ctx.savedSessionNames().filter((name) => nameGlobMatches(pattern, name));
       if (live.length === 0 && saved.length === 0) {
         const known = [...ctx.registry.sessionNames(), ...ctx.savedSessionNames()];
-        throw new CommandError("bad_args", `no session ${isNamePattern(pattern) ? "matches" : "named"} ${pattern}`, known.length === 0 ? "no sessions are open" : `sessions: ${known.sort().join(" ")}`);
+        throw new CommandError("bad_args", `no session ${isNamePattern(pattern) ? "matches" : "named"} ${pattern}`, known.length === 0 ? "no sessions are open" : `sessions: ${known.toSorted().join(" ")}`);
       }
       const closed: Array<{ session: string; closedTabs: number }> = [];
       for (const name of live) closed.push({ session: name, closedTabs: await closeSession(ctx, name) });
