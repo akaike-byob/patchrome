@@ -102,6 +102,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   const version = buildId.split("+")[0] ?? buildId;
   const sessionQueues = new Map<string, Promise<unknown>>();
   let idleTimer: NodeJS.Timeout | undefined;
+  // The idle clock runs only while no request is in flight, so a slow Chrome launch or a long wait is never cut off.
+  let inFlightRequests = 0;
   let isShuttingDown = false;
 
   const server = createServer((socket) => handleConnection(socket));
@@ -122,6 +124,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
 
   const resetIdleTimer = () => {
     clearTimeout(idleTimer);
+    // A request can arrive while startup is still awaiting after listen, before startup arms the timer.
+    if (inFlightRequests > 0) return;
     idleTimer = setTimeout(() => void shutdown(`idle for ${idleMs} ms`), idleMs);
   };
 
@@ -176,8 +180,12 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     socket.once("close", () => disconnected.abort());
     const lines = createInterface({ input: socket });
     lines.on("line", (line) => {
-      resetIdleTimer();
-      void respond(socket, line, disconnected.signal);
+      inFlightRequests += 1;
+      clearTimeout(idleTimer);
+      void respond(socket, line, disconnected.signal).finally(() => {
+        inFlightRequests -= 1;
+        resetIdleTimer();
+      });
     });
     socket.on("error", () => {});
   }
