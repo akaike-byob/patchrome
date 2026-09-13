@@ -30,10 +30,15 @@ jobs:
       - run: npm pack --dry-run
 
   integration:
-    name: Integration tests
+    name: Integration tests (${{ matrix.shard }}/3)
     # The tests drive a headed Chrome, and patchrome supports macOS only; GitHub's macOS runners ship Chrome.
+    # Each shard gets its own runner, so the Chromes never compete for one machine's CPU.
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -41,7 +46,7 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci
-      - run: npm run test:integration
+      - run: npm run test:integration -- --shard=${{ matrix.shard }}/3
 
   secrets:
     name: Secret scan
