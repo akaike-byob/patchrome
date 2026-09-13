@@ -1,6 +1,6 @@
 {
   "name": "patchrome",
-  "version": "0.1.1",
+  "version": "0.0.0-development",
   "description": "Stealth shared-browser CLI for coding agents: one Patchright Chrome, a tab set per agent session",
   "homepage": "https://github.com/akaike-byob/patchrome#readme",
   "bugs": {
@@ -48,9 +48,11 @@
   },
   "devDependencies": {
     "@types/node": "^26.5.1",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.82.0",
     "oxlint-tsgolint": "^7.0.2001",
+    "semantic-release": "^25.0.9",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   },
