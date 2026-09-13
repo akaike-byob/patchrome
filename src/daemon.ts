@@ -46,10 +46,9 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   const saveSessionsNow = async () => {
     clearTimeout(saveTimer);
     saveTimer = undefined;
-    const live = registry.savedSessions();
-    const liveNames = new Set(live.map((saved) => saved.name));
-    const waiting = [...awaitingRestore.values()].filter((saved) => !liveNames.has(saved.name));
-    await saveSessions(paths.savedSessionsPath, [...live, ...waiting], Date.now()).catch((err: unknown) => log(`saving sessions.json failed: ${String(err)}`));
+    // A session mid-restore stays saved as it was, so a crash during the restore cannot save its first few tabs over it.
+    const live = registry.savedSessions().filter((saved) => !awaitingRestore.has(saved.name));
+    await saveSessions(paths.savedSessionsPath, [...live, ...awaitingRestore.values()], Date.now()).catch((err: unknown) => log(`saving sessions.json failed: ${String(err)}`));
   };
   const scheduleSessionsSave = () => {
     if (!isSavingSessions || saveTimer !== undefined) return;
@@ -213,8 +212,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
       scheduleSessionsSave();
       return;
     }
-    awaitingRestore.delete(request.session);
     const { restored, dropped } = await restoreSession(ctx, saved, request.timeoutMs);
+    awaitingRestore.delete(request.session);
     log(`${request.session} restored tabs ${restored.join(" ") || "none"}${dropped.length > 0 ? `, dropped ${dropped.join(" ")}` : ""}`);
   }
 
@@ -277,6 +276,14 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     });
     send(socket, await current);
   }
+}
+
+// Patchright 1.63 starts request interception from the CRPage constructor without awaiting or catching it.
+// A page that closes before that CDP call answers rejects with a closed-session ProtocolError nobody holds,
+// which would otherwise crash the daemon and every session in it.
+export function isClosedTargetRejection(reason: unknown): boolean {
+  // The class leaves `name` as "Error"; only its constructor carries the ProtocolError name.
+  return reason instanceof Error && reason.constructor.name === "ProtocolError" && (reason as Error & { type?: unknown }).type === "closed";
 }
 
 function send(socket: Socket, response: DaemonResponse | DaemonStreamLine) {

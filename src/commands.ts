@@ -627,7 +627,18 @@ async function browserContextForOpen(ctx: CommandContext, session: string, isIso
 // Chrome closes with the daemon, so a restart reopens each saved tab at its last URL under the same id.
 // An isolated session gets a fresh in-memory context: its cookies did not survive. A tab whose page fails
 // to load is left out, and a command on it gives tab_gone.
+// A restore that fails part way closes what it opened, so the saved session stays whole for the next attempt
+// instead of being replaced by its first few tabs.
 export async function restoreSession(ctx: CommandContext, saved: SavedSession, timeoutMs: number): Promise<{ restored: string[]; dropped: string[] }> {
+  try {
+    return await reopenSavedTabs(ctx, saved, timeoutMs);
+  } catch (err) {
+    await closeSession(ctx, saved.name);
+    throw err;
+  }
+}
+
+async function reopenSavedTabs(ctx: CommandContext, saved: SavedSession, timeoutMs: number): Promise<{ restored: string[]; dropped: string[] }> {
   const restored: string[] = [];
   const dropped: string[] = [];
   ctx.registry.setLabel(saved.name, saved.label);

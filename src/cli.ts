@@ -471,7 +471,11 @@ async function main(argv: string[]): Promise<number> {
     const profile = profileFlagIndex === -1 ? "stealth" : argv[profileFlagIndex + 1];
     if (profile === undefined || !isValidName(profile)) throw new Error(`__daemon needs a valid --profile, got ${String(profile)}`);
     // Loaded here only: Patchright takes most of a CLI call's startup time, and clients never need it.
-    const { runDaemon } = await import("./daemon.ts");
+    const { isClosedTargetRejection, runDaemon } = await import("./daemon.ts");
+    process.on("unhandledRejection", (reason) => {
+      if (!isClosedTargetRejection(reason)) throw reason;
+      process.stdout.write(`${new Date().toISOString()} ignored a rejection from a closed target: ${String(reason).split("\n")[0]}\n`);
+    });
     await runDaemon(profile);
     return new Promise(() => {});
   }
