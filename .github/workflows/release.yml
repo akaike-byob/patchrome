@@ -33,4 +33,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
-      - run: npm publish --access public
+      # The first version went out by hand, before npm allowed a trusted publisher on the package.
+      - name: Publish unless this version is already on npm
+        run: |
+          spec="$(node -p 'const p = require("./package.json"); p.name + "@" + p.version')"
+          if npm view "$spec" version > /dev/null 2>&1; then
+            echo "$spec is already on npm, nothing to publish"
+          else
+            npm publish --access public
+          fi
