@@ -41,8 +41,13 @@ describe("debug profile", () => {
     const errorsOnly = await debug("dbg", ["console", "--level", "error"]);
     expect((errorsOnly.json.data?.messages as ConsoleSummary[]).map((message) => message.text)).toEqual(["broken thing"]);
 
-    const errors = await debug("dbg", ["errors"]);
-    const pageErrors = errors.json.data?.errors as Array<{ message: string; stack: string }>;
+    // The fixture throws from a 50 ms timer, and Chrome delays timers in background tabs by up to a second.
+    let pageErrors: Array<{ message: string; stack: string }> = [];
+    const deadlineMs = Date.now() + 5_000;
+    while (pageErrors.length === 0 && Date.now() < deadlineMs) {
+      pageErrors = ((await debug("dbg", ["errors"])).json.data?.errors ?? []) as typeof pageErrors;
+      if (pageErrors.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     expect(pageErrors).toHaveLength(1);
     expect(pageErrors[0]?.message).toBe("Error: boom from fixture");
     expect(pageErrors[0]?.stack).toContain("/noisy");
