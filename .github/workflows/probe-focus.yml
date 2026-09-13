@@ -25,10 +25,10 @@ jobs:
       - run: |
           for i in 1 2 3 4 5 6; do
             echo "=== attempt $i"
-            DEBUG=pw:api npx vitest run test/integration/wait-watch.test.ts -t "interstitial" > vitest.log 2>&1 || true
+            DEBUG=pw:api,pw:protocol npx vitest run test/integration/wait-watch.test.ts -t "interstitial" > vitest.log 2>&1 || true
             grep -E "×|✓ .*interstitial|expected" vitest.log || true
-            for log in "$TMPDIR"/patchrome-wait-*/stealth/daemon.log; do
-              grep -E "waiter|isVisible|waitFor|title|locator|=> " "$log" | grep -v "^\s*$" | tail -40
-            done
-            rm -rf "$TMPDIR"/patchrome-wait-*
+            for log in "$TMPDIR"/patchrome-wait-*/stealth/daemon.log; do python3 .github/probe/slow-window.py "$log" | head -150 || true; done
+            pkill -f "chrome-profile" || true
+            sleep 2
+            rm -rf "$TMPDIR"/patchrome-wait-* || true
           done
