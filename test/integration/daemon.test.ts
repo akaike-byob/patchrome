@@ -83,4 +83,13 @@ describe("daemon lifecycle", () => {
     while (daemonPidsFor(idleHome).length > 0 && Date.now() < deadlineMs) await sleep(250);
     expect(daemonPidsFor(idleHome)).toEqual([]);
   });
+
+  it("does not go idle while a request outlasts the idle timeout", async () => {
+    const busyHome = makeHome("busy");
+    const idle = { PATCHROME_IDLE_MS: "2000" };
+    expect((await runCli(busyHome, "s", ["open"], idle)).json).toMatchObject({ ok: true });
+    const waited = await runCli(busyHome, "s", ["--timeout-ms", "5000", "wait", "--text", "never shown"], idle);
+    expect(waited.json.error?.code).toBe("timeout");
+    await runCli(busyHome, "s", ["daemon", "stop"], idle);
+  });
 });

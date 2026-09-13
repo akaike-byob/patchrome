@@ -103,6 +103,8 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
   const version = buildId.split("+")[0] ?? buildId;
   const sessionQueues = new Map<string, Promise<unknown>>();
   let idleTimer: NodeJS.Timeout | undefined;
+  // The idle clock runs only while no request is in flight, so a slow Chrome launch or a long wait is never cut off.
+  let inFlightRequests = 0;
   let isShuttingDown = false;
 
   const server = createServer((socket) => handleConnection(socket));
@@ -177,8 +179,12 @@ export async function runDaemon(profile: string, env: NodeJS.ProcessEnv = proces
     socket.once("close", () => disconnected.abort());
     const lines = createInterface({ input: socket });
     lines.on("line", (line) => {
-      resetIdleTimer();
-      void respond(socket, line, disconnected.signal);
+      inFlightRequests += 1;
+      clearTimeout(idleTimer);
+      void respond(socket, line, disconnected.signal).finally(() => {
+        inFlightRequests -= 1;
+        if (inFlightRequests === 0) resetIdleTimer();
+      });
     });
     socket.on("error", () => {});
   }
