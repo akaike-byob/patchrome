@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "patchrome tab groups",
+  "description": "Groups each patchrome session's tabs under the session name.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "tabGroups", "debugger"],
+  "background": { "service_worker": "service-worker.js" }
+}

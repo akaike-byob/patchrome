@@ -1,0 +1,7 @@
+node_modules/
+scratch/
+dist/
+.DS_Store
+*.tgz
+.env*
+.claude/settings.local.json

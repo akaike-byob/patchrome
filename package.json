@@ -1,0 +1,54 @@
+{
+  "name": "patchrome",
+  "version": "0.1.0",
+  "description": "Stealth shared-browser CLI for coding agents: one Patchright Chrome, a tab set per agent session",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "patchrome": "bin/patchrome.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "extension",
+    "skills",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "patchright": "^1.63.0",
+    "zod": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akaike-byob/patchrome.git"
+  },
+  "homepage": "https://github.com/akaike-byob/patchrome#readme",
+  "bugs": {
+    "url": "https://github.com/akaike-byob/patchrome/issues"
+  }
+}
