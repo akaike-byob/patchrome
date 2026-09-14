@@ -59,6 +59,14 @@ export interface TestSites {
   close: () => void;
 }
 
+// Chrome resets proxy and site connections whenever it drops a tunnel, on a rule change or a closing tab.
+// Node turns a reset with no listener into an uncaught exception, which fails the run around passing tests.
+const ignoreClientResets = (server: HttpsServer | ReturnType<typeof createSecureServer>): void => {
+  server.on("tlsClientError", () => {});
+  server.on("clientError", () => {});
+  server.on("secureConnection", (socket) => socket.on("error", () => socket.destroy()));
+};
+
 const listen = async (server: Server | HttpsServer | ReturnType<typeof createSecureServer>): Promise<number> =>
   new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)));
 
@@ -76,6 +84,7 @@ export async function startTestSites({ key, cert }: TestCertificate): Promise<Te
     res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" });
     res.end(`<!doctype html><title>${host}</title><p id="host">${host}</p>`);
   });
+  ignoreClientResets(server);
   const httpsPort = await listen(server);
   return { requests, httpsPort, close: () => server.close() };
 }
@@ -125,6 +134,7 @@ export async function startTestProxy(
     upstream.on("error", end);
     socket.on("error", end);
   });
+  ignoreClientResets(server);
   proxy.port = await listen(server);
   proxy.close = () => {
     server.closeAllConnections();

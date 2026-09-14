@@ -279,7 +279,7 @@ export async function runDaemon(
   // Chrome inherits this process's environment, so a display picked here is the one it opens on.
   async function launchBrowser(): Promise<void> {
     const displays = listDisplays(env);
-    const choice = resolveDisplay(detectHostPlatform(), env, displays);
+    const choice = resolveDisplay(detectHostPlatform(), env, displays, isHeadless);
     switch (choice.kind) {
       case "inherit":
         break;
