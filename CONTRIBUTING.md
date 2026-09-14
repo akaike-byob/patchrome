@@ -2,7 +2,7 @@
 
 ## Setup
 
-Requires macOS, Node.js 24.2 or newer (see `.node-version`) and Google Chrome.
+Requires macOS or desktop Linux, Node.js 24.2 or newer (see `.node-version`) and Google Chrome.
 
 ```bash
 npm install

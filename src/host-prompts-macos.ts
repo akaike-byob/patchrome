@@ -91,6 +91,7 @@ async function renamedOsascript(bundlesDir: string): Promise<string> {
 
 export function macosPrompts(bundlesDir: string, log: (message: string) => void): HostPrompts {
   return {
+    approval: "prompt",
     async askApproval(reason, timeoutMs) {
       // A failed build still asks, under the name osascript, rather than refusing every copy.
       const osascript = await renamedOsascript(bundlesDir).catch((err: unknown) => {

@@ -60,6 +60,7 @@ function powerShell(script: string, timeoutMs: number) {
 }
 
 export const wslPrompts: HostPrompts = {
+  approval: "prompt",
   async askApproval(reason, timeoutMs) {
     try {
       const { stdout } = await powerShell(approvalScript(reason, timeoutMs), timeoutMs + 20_000);

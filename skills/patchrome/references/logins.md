@@ -31,7 +31,9 @@ up to 10 minutes.
 
 `state import` and `state load` wait up to a minute for the user to approve with Touch ID (Windows
 Hello on WSL). Tell the user a prompt is coming before you run one. `copy_denied` means they refused:
-do not retry, and never copy cookies or profile files another way. `audit` lists past copies.
+do not retry, and never copy cookies or profile files another way. On desktop Linux there is no such
+prompt, so the copy runs unasked and only shows the user a notification: say what you are copying and
+why before you run it. `audit` lists past copies.
 
 ## `state save` and `state load`
 

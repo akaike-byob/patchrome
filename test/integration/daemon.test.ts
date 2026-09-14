@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,13 +11,16 @@ function daemonPidsFor(home: string): number[] {
     .split("\n")
     .filter((line) => line.includes("__daemon"))
     .map((line) => Number(line.trim().split(/\s+/)[0]))
-    .filter((pid) => {
-      try {
-        return execFileSync("ps", ["-Eww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(home);
-      } catch {
-        return false;
-      }
-    });
+    .filter((pid) => daemonUsesHome(pid, home));
+}
+
+function daemonUsesHome(pid: number, home: string): boolean {
+  try {
+    if (process.platform === "linux") return readFileSync(`/proc/${pid}/environ`, "utf8").includes(home);
+    return execFileSync("ps", ["-Eww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(home);
+  } catch {
+    return false;
+  }
 }
 
 describe("daemon lifecycle", () => {
