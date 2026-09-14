@@ -44,7 +44,7 @@ _patchrome() {
     'route:block or mock requests'
     'login:sign in by hand in a visible tab'
     'cookies:list cookies'
-    'state:save, load or import login state'
+    'state:save, load, import or export login state'
     'console:console messages (debug profile)'
     'errors:page errors (debug profile)'
     'trace:record a Playwright trace (debug profile)'
@@ -93,7 +93,7 @@ _patchrome() {
           ;;
         network) (( CURRENT == 2 )) && _values 'action' list get har ;;
         route) (( CURRENT == 2 )) && _values 'action' block mock list clear ;;
-        state) (( CURRENT == 2 )) && _values 'action' save load import ;;
+        state) (( CURRENT == 2 )) && _values 'action' save load import export ;;
         trace) (( CURRENT == 2 )) && _values 'action' start stop ;;
         daemon) (( CURRENT == 2 )) && _values 'action' status stop logs ;;
         cdp) (( CURRENT == 2 )) && _values 'action' help ;;

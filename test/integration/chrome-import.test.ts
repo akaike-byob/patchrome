@@ -1,7 +1,8 @@
-import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "patchright";
+import { parseStorageState } from "../../src/commands.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   makeHome,
@@ -11,6 +12,18 @@ import {
   stopDaemon,
   type FixtureServer,
 } from "./helpers.ts";
+
+// The records /auth-seed stores, read back in a page. The Date and the bytes are what JSON alone would lose.
+const readSeededRecords = `new Promise((resolve) => {
+  const opening = indexedDB.open("auth");
+  opening.onsuccess = () => {
+    const tx = opening.result.transaction(["users", "tokens"]);
+    const user = tx.objectStore("users").index("byEmail").get("ada@example.test");
+    const refresh = tx.objectStore("tokens").get("firebase:authUser");
+    tx.oncomplete = () => resolve({ version: opening.result.version, signedInAt: user.result.signedInAt.toISOString(), key: [...user.result.key], refresh: refresh.result });
+  };
+})`;
+const seededRecords = { version: 3, signedInAt: "2023-11-14T22:13:20.000Z", key: [7, 8, 9], refresh: "refresh-token" };
 
 // Stands in for the everyday Chrome: a user data dir whose cookies Chrome encrypted with the real keychain key.
 async function seedEverydayChrome(fixture: FixtureServer): Promise<string> {
@@ -49,6 +62,7 @@ describe("state import from the everyday Chrome", () => {
   let chromeEnv: NodeJS.ProcessEnv;
   const home = makeHome("import");
   const denyingHome = makeHome("import-denied");
+  const otherMachineHome = makeHome("export-loaded");
   let approvals: { asked: string[] };
 
   beforeAll(async () => {
@@ -60,6 +74,7 @@ describe("state import from the everyday Chrome", () => {
   afterAll(async () => {
     await stopDaemon(home);
     await stopDaemon(denyingHome);
+    await stopDaemon(otherMachineHome);
     await fixture.close();
   });
 
@@ -87,24 +102,8 @@ describe("state import from the everyday Chrome", () => {
     ]);
     const token = await runCli(home, "reader", ["eval", "localStorage.getItem('token')"]);
     expect(token.json.data?.value).toBe("ls-token");
-    const records = await runCli(home, "reader", [
-      "eval",
-      `new Promise((resolve) => {
-      const opening = indexedDB.open("auth");
-      opening.onsuccess = () => {
-        const tx = opening.result.transaction(["users", "tokens"]);
-        const user = tx.objectStore("users").index("byEmail").get("ada@example.test");
-        const refresh = tx.objectStore("tokens").get("firebase:authUser");
-        tx.oncomplete = () => resolve({ version: opening.result.version, signedInAt: user.result.signedInAt.toISOString(), key: [...user.result.key], refresh: refresh.result });
-      };
-    })`,
-    ]);
-    expect(records.json.data?.value).toEqual({
-      version: 3,
-      signedInAt: "2023-11-14T22:13:20.000Z",
-      key: [7, 8, 9],
-      refresh: "refresh-token",
-    });
+    const records = await runCli(home, "reader", ["eval", readSeededRecords]);
+    expect(records.json.data?.value).toEqual(seededRecords);
 
     // The seeded Chrome also signed in to localhost; the import named 127.0.0.1 only.
     expect((await runCli(home, "reader", ["cookies", "--domain", "localhost"])).json.data?.cookies).toEqual([]);
@@ -124,6 +123,72 @@ describe("state import from the everyday Chrome", () => {
       expect.objectContaining({ name: "sid", value: "from-chrome" }),
     ]);
     expect((await runCli(home, "reader", ["cookies", "--domain", "localhost"])).json.data?.cookies).toEqual([]);
+  });
+
+  it("exports a site's login to a file that another patchrome and Playwright both load", async () => {
+    const file = join(makeHome("export-file"), "login.json");
+    const exported = await runCli(home, "exporter", ["state", "export", "127.0.0.1", file]);
+    expect(exported.json, exported.stderr).toMatchObject({
+      ok: true,
+      data: {
+        site: "127.0.0.1",
+        path: file,
+        cookies: 1,
+        origins: [{ origin: fixture.origin, localStorageItems: 1, indexedDB: ["auth"] }],
+      },
+    });
+    expect(approvals.asked.at(-1)).toBe(
+      `export the 127.0.0.1 login (1 cookie and storage for 1 origin) from patchrome profile stealth (shared by every session) to file ${file}. Asked by agent session exporter.`,
+    );
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({
+      cookies: [expect.objectContaining({ name: "sid", value: "from-chrome" })],
+      origins: [{ origin: fixture.origin, localStorage: [{ name: "token", value: "ls-token" }] }],
+    });
+
+    await startDaemonAnsweringCopies(otherMachineHome, "approved");
+    const loaded = await runCli(otherMachineHome, "loader", ["state", "load", file]);
+    expect(loaded.json, loaded.stderr).toMatchObject({ ok: true, data: { cookies: 1 } });
+    await runCli(otherMachineHome, "loader", ["open", `${fixture.origin}/form`]);
+    expect((await runCli(otherMachineHome, "loader", ["cookies"])).json.data?.cookies).toEqual([
+      expect.objectContaining({ name: "sid", value: "from-chrome" }),
+    ]);
+    expect((await runCli(otherMachineHome, "loader", ["eval", "localStorage.getItem('token')"])).json.data?.value).toBe(
+      "ls-token",
+    );
+    expect((await runCli(otherMachineHome, "loader", ["eval", readSeededRecords])).json.data?.value).toEqual(
+      seededRecords,
+    );
+
+    const browser = await chromium.launch({ channel: "chrome", headless: true });
+    try {
+      const context = await browser.newContext({ storageState: file });
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/form`);
+      expect(await page.evaluate(readSeededRecords)).toEqual(seededRecords);
+      const writtenByPlaywright = await context.storageState({ indexedDB: true });
+      expect(parseStorageState(JSON.stringify(writtenByPlaywright)).origins).toEqual(
+        parseStorageState(readFileSync(file, "utf8")).origins,
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("exports an isolated session's own login, and refuses Google and a site with no login", async () => {
+    const file = join(makeHome("export-isolated"), "login.json");
+    const isolated = await runCli(home, "sealed", ["state", "export", "localhost", file]);
+    expect(isolated.json, isolated.stderr).toMatchObject({ ok: true, data: { site: "localhost", cookies: 1 } });
+
+    const google = await runCli(home, "exporter", ["state", "export", "https://accounts.google.com/", file]);
+    expect(google.exitCode).toBe(2);
+    expect(google.json.error?.message).toBe("patchrome does not export Google logins");
+
+    const empty = await runCli(home, "exporter", ["state", "export", "example.test", file]);
+    expect(empty.exitCode).toBe(2);
+    expect(empty.json.error?.message).toBe(
+      "patchrome profile stealth (shared by every session) has no cookies or storage for example.test",
+    );
   });
 
   it("copies nothing when the person does not approve, and records the refusal", async () => {

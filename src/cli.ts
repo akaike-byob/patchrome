@@ -76,6 +76,7 @@ state
   state save <file>
   state load <file>
   state import <site> [--from <chrome-profile>]
+  state export <site> <file>
 
 scripting
   pipe [--bail]                          JSON requests on stdin, one JSON response per line on stdout
@@ -143,15 +144,15 @@ export function parseCli(
     throw new CommandError("bad_args", `invalid profile name ${profile}`, "use letters, digits, dot, dash, underscore");
   const [verb, ...rest] = positionals;
   // A person signs in by hand, which takes minutes, not the 30 s an agent command gets.
-  // An import starts a second Chrome and copies every IndexedDB record of the site. Imports and loads also
-  // wait up to a minute for the person to approve the copy.
+  // An import starts a second Chrome and copies every IndexedDB record of the site. Imports, loads and exports
+  // also wait up to a minute for the person to approve the copy.
   const defaultTimeoutMs =
     verb === "login" ||
     verb === "watch" ||
     (verb === "challenge" && values.handoff) ||
     (verb === "console" && values.follow)
       ? 600_000
-      : verb === "state" && (positionals[1] === "import" || positionals[1] === "load")
+      : verb === "state" && (positionals[1] === "import" || positionals[1] === "load" || positionals[1] === "export")
         ? 120_000
         : 30_000;
   const timeoutMs = values["timeout-ms"] === undefined ? defaultTimeoutMs : Number(values["timeout-ms"]);
@@ -356,8 +357,13 @@ export function parseCli(
       args = { domain: values.domain, inline: values.inline, out };
       break;
     case "state": {
-      refuseExtra(2);
-      const action = need(0, "save|load|import");
+      const action = need(0, "save|load|import|export");
+      refuseExtra(action === "export" ? 3 : 2);
+      if (action === "export") {
+        command = "state-export";
+        args = { site: need(1, "site"), file: resolve(need(2, "file")) };
+        break;
+      }
       if (action === "import") {
         command = "state-import";
         // The CLI's environment names the Chrome to read, not the long-running daemon's.
@@ -368,7 +374,7 @@ export function parseCli(
         throw new CommandError(
           "bad_args",
           `state ${action} is not a command`,
-          "state save|load <file>, state import <site> [--from <chrome-profile>]",
+          "state save|load <file>, state import <site> [--from <chrome-profile>], state export <site> <file>",
         );
       command = action === "save" ? "state-save" : "state-load";
       args = { file: resolve(need(1, "file")) };
