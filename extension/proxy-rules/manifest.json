@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "patchrome proxy rules",
+  "description": "Routes each host through the proxy its patchrome rule names, and answers those proxies' password prompts.",
+  "version": "0.1.0",
+  "permissions": ["proxy", "privacy", "storage", "webRequest", "webRequestAuthProvider"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "service-worker.js" }
+}

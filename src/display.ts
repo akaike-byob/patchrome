@@ -41,7 +41,14 @@ export function listDisplays(env: NodeJS.ProcessEnv = process.env, readDir = rea
   return { x, wayland };
 }
 
-export function resolveDisplay(platform: HostPlatform, env: NodeJS.ProcessEnv, displays: Displays): DisplayChoice {
+export function resolveDisplay(
+  platform: HostPlatform,
+  env: NodeJS.ProcessEnv,
+  displays: Displays,
+  isHeadless: boolean,
+): DisplayChoice {
+  // Headless Chrome draws nothing, so it opens no display even where several are running.
+  if (isHeadless) return { kind: "inherit" };
   // WSLg sets DISPLAY for its own X server, and macOS has no display variable at all.
   if (platform !== "linux") return { kind: "inherit" };
   if (isSet(env.DISPLAY) || isSet(env.WAYLAND_DISPLAY)) return { kind: "inherit" };

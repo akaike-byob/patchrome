@@ -89,6 +89,15 @@ export function isReplayable(command: CommandName, args: Record<string, unknown>
     case "session-label":
     case "daemon-status":
     case "daemon-stop":
+    // Proxy rules belong to the profile, not to a flow: a replay on another machine must not rewrite its routes.
+    case "proxy-add":
+    case "proxy-remove":
+    case "proxy-list":
+    case "proxy-rule-add":
+    case "proxy-rule-remove":
+    case "proxy-rule-list":
+    case "proxy-test":
+    case "proxy-clear":
       return false;
   }
 }

@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+# The proxy integration test invents passwords for the HTTPS proxies it starts on
+# localhost. gitleaks' generic-api-key rule reads them as real credentials.
+# Allowlisting the values rather than the file keeps the rest of the file scanned.
+[[allowlists]]
+description = "Invented proxy credentials in test/integration/proxy.test.ts"
+regexTarget = "secret"
+regexes = ['''^alice-secret-4711$''', '''^carol-wrong-0815$''', '''^carol-right$''', '''^bob-secret$''']

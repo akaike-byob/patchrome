@@ -77,6 +77,16 @@ state
   state import <site> [--from <chrome-profile>]
   state export <site> <file>
 
+proxies (every session in the profile shares them)
+  proxy add <name> <https://host:port> [--username <user> --password-stdin | --password-env <VAR>]
+  proxy remove <name>
+  proxy list
+  proxy rule add <host|*.domain|*> <proxy|direct|block>
+  proxy rule remove <pattern>
+  proxy rule list
+  proxy test <url>
+  proxy clear
+
 scripting
   pipe [--bail]                          JSON requests on stdin, one JSON response per line on stdout
   session history [--format sh|jsonl] [--out <file>]
@@ -345,6 +355,82 @@ export function parseCli(
       }
       break;
     }
+    case "proxy": {
+      const action = need(0, "add|remove|list|rule|test|clear");
+      switch (action) {
+        case "add": {
+          refuseExtra(3);
+          if (values["password-stdin"] && values["password-env"] !== undefined)
+            throw new CommandError("bad_args", "--password-stdin and --password-env are two sources; give one");
+          let password: string | undefined;
+          if (values["password-env"] !== undefined) {
+            password = env[values["password-env"]];
+            if (password === undefined || password === "")
+              throw new CommandError(
+                "bad_args",
+                `--password-env names ${values["password-env"]}, which is unset or empty`,
+              );
+          }
+          command = "proxy-add";
+          args = {
+            name: need(1, "name"),
+            server: need(2, "https://host:port"),
+            username: values.username,
+            password,
+            passwordFromStdin: values["password-stdin"],
+          };
+          break;
+        }
+        case "remove":
+          refuseExtra(2);
+          command = "proxy-remove";
+          args = { name: need(1, "name") };
+          break;
+        case "list":
+          refuseExtra(1);
+          command = "proxy-list";
+          break;
+        case "rule": {
+          const ruleAction = need(1, "add|remove|list");
+          if (ruleAction === "add") {
+            refuseExtra(4);
+            command = "proxy-rule-add";
+            args = { pattern: need(2, "pattern"), via: need(3, "proxy|direct|block") };
+          } else if (ruleAction === "remove") {
+            refuseExtra(3);
+            command = "proxy-rule-remove";
+            args = { pattern: need(2, "pattern") };
+          } else if (ruleAction === "list") {
+            refuseExtra(2);
+            command = "proxy-rule-list";
+          } else {
+            throw new CommandError(
+              "bad_args",
+              `proxy rule ${ruleAction} is not a command`,
+              "proxy rule add|remove|list",
+            );
+          }
+          break;
+        }
+        case "test":
+          refuseExtra(2);
+          command = "proxy-test";
+          // The CLI's environment picks the echo service, not the long-running daemon's.
+          args = { url: need(1, "url"), ipEchoUrl: env.PATCHROME_IP_ECHO_URL };
+          break;
+        case "clear":
+          refuseExtra(1);
+          command = "proxy-clear";
+          break;
+        default:
+          throw new CommandError(
+            "bad_args",
+            `proxy ${action} is not a command`,
+            "proxy add|remove|list|rule|test|clear",
+          );
+      }
+      break;
+    }
     case "login":
       refuseExtra(1);
       command = "login";
@@ -535,7 +621,7 @@ export async function localActionData(
       const { entries, unreadableLines } = await readAuditLog(auditLogPathFrom());
       const shown = entries.slice(-action.count);
       const lines = [
-        ...(entries.length === 0 ? ["no copies recorded"] : shown.map(auditLine)),
+        ...(entries.length === 0 ? ["no copies or proxy changes recorded"] : shown.map(auditLine)),
         ...(unreadableLines.length > 0
           ? [`unreadable lines in ${auditLogPathFrom()}: ${unreadableLines.join(" ")}`]
           : []),
@@ -569,6 +655,24 @@ export async function localActionData(
       };
     }
   }
+}
+
+// The password never appears in argv, where `ps` and shell history would keep it. One trailing newline, as
+// `echo` and a here-string add, is not part of it.
+async function passwordFromStdin(): Promise<string> {
+  if (process.stdin.isTTY)
+    throw new CommandError(
+      "bad_args",
+      "--password-stdin reads a pipe",
+      'printf %s "$PASSWORD" | patchrome proxy add ...',
+    );
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  const password = Buffer.concat(chunks)
+    .toString("utf8")
+    .replace(/\r?\n$/, "");
+  if (password === "") throw new CommandError("bad_args", "--password-stdin read an empty password");
+  return password;
 }
 
 function print(response: DaemonResponse, isJson: boolean): number {
@@ -628,6 +732,8 @@ async function main(argv: string[]): Promise<number> {
           return print({ id: 0, ok: true, data: await localActionData(parsed) }, parsed.isJson);
       }
     }
+    if (parsed.args.passwordFromStdin === true)
+      parsed.args = { ...parsed.args, passwordFromStdin: undefined, password: await passwordFromStdin() };
     const connection = new DaemonConnection(parsed.profile);
     try {
       const response = await connection.request({

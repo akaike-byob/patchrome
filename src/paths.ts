@@ -35,6 +35,8 @@ export interface ProfilePaths {
   logPath: string;
   sessionsDir: string;
   savedSessionsPath: string;
+  proxyConfigPath: string;
+  proxySecretsPath: string;
 }
 
 export function profilePaths(profile: string, env: NodeJS.ProcessEnv = process.env): ProfilePaths {
@@ -56,6 +58,8 @@ export function profilePaths(profile: string, env: NodeJS.ProcessEnv = process.e
     logPath: join(profileDir, "daemon.log"),
     sessionsDir: join(profileDir, "sessions"),
     savedSessionsPath: join(profileDir, "sessions.json"),
+    proxyConfigPath: join(profileDir, "proxies.json"),
+    proxySecretsPath: join(profileDir, "proxy-secrets.json"),
   };
 }
 

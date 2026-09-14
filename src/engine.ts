@@ -19,6 +19,7 @@ import { CommandError } from "./protocol.ts";
 import type { HostPlatform } from "./host-platform.ts";
 import { readOriginStorageInPage, type OriginStorage } from "./origin-storage.ts";
 import type { ProfileMode } from "./profile-mode.ts";
+import type { ProxyRulesForChrome } from "./proxy-rules.ts";
 import type { TabGroupColor, TabGroupSummary } from "./tab-groups.ts";
 import {
   findWindowsChrome,
@@ -70,6 +71,11 @@ export interface BrowserEngine {
   // Puts the pages in one Chrome tab group per window, titled and coloured as given.
   groupTabs(pages: Page[], title: string, color: TabGroupColor): Promise<void>;
   describeTabGroups(pages: Page[]): Promise<TabGroupSummary[]>;
+  // Undefined turns proxy rules off. Isolated contexts never see these rules: Chrome keeps extensions out of them.
+  applyProxyRules(rules: ProxyRulesForChrome | undefined): Promise<void>;
+  // Proxy refusals and errors the extension saw since the time given.
+  recentProxyFailures(sinceMs: number): Promise<ProxyFailure[]>;
+  chromeTimeZone(): Promise<string>;
   // Debug profile only; a stealth launch has no port, so this is undefined.
   // Opens a copied Chrome user data dir in a separate headless Chrome, with no network, and reads its cookies
   // and each origin's storage.
@@ -82,6 +88,10 @@ export interface BrowserEngine {
   close(): Promise<void>;
 }
 
+export type ProxyFailure =
+  | { kind: "auth_refused" | "no_credentials"; challenger: string; url: string; atMs: number }
+  | { kind: "proxy_error"; error: string; detail: string; atMs: number };
+
 const pageOpenTimeoutMs = 15_000;
 // Chrome activates 400-800ms into launch, before launch resolves. A longer grace sends the user's own
 // Dock clicks on Chrome back to the previous app.
@@ -90,6 +100,7 @@ const devToolsPortWaitMs = 10_000;
 const extensionWorkerWaitMs = 10_000;
 // src/ and dist/ both sit one level below the package root, next to extension/.
 const tabGroupsExtensionDir = fileURLToPath(new URL("../extension/tab-groups", import.meta.url));
+const proxyRulesExtensionDir = fileURLToPath(new URL("../extension/proxy-rules", import.meta.url));
 
 export class PatchrightEngine implements BrowserEngine {
   #chromeHost: ChromeHost;
@@ -99,13 +110,26 @@ export class PatchrightEngine implements BrowserEngine {
   #closedListeners: Array<() => void> = [];
   #endpoint: DebuggingEndpoint | undefined;
   #tabGroupsExtensionId: string | undefined;
+  #proxyRulesExtensionId: string | undefined;
   #targetIdByPage = new WeakMap<Page, Promise<string>>();
   #userDataDir: string | undefined;
   #isHeadless: boolean;
+  #trustedSpkiHashes: string[];
 
-  constructor({ chromeHost, isHeadless }: { chromeHost: ChromeHost; isHeadless: boolean }) {
+  // trustedSpkiHashes lets integration tests run HTTPS proxies on self-signed certificates. Only code in the
+  // daemon's own process can pass it; the __daemon entrypoint passes none.
+  constructor({
+    chromeHost,
+    isHeadless,
+    trustedSpkiHashes = [],
+  }: {
+    chromeHost: ChromeHost;
+    isHeadless: boolean;
+    trustedSpkiHashes?: string[];
+  }) {
     this.#chromeHost = chromeHost;
     this.#isHeadless = isHeadless;
+    this.#trustedSpkiHashes = trustedSpkiHashes;
   }
 
   async launch(chromeProfileDir: string, mode: ProfileMode): Promise<void> {
@@ -131,7 +155,12 @@ export class PatchrightEngine implements BrowserEngine {
       viewport: null,
       // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
       chromiumSandbox: true,
-      args: launchArgsFor(mode),
+      args: [
+        ...launchArgsFor(mode),
+        ...(this.#trustedSpkiHashes.length === 0
+          ? []
+          : [`--ignore-certificate-errors-spki-list=${this.#trustedSpkiHashes.join(",")}`]),
+      ],
     });
     const context = this.#isHeadless ? await launched : await keepFocusDuring(launched, focusGraceMs);
     context.on("close", () => {
@@ -145,6 +174,10 @@ export class PatchrightEngine implements BrowserEngine {
       path: await this.#pathForChrome(tabGroupsExtensionDir),
     });
     this.#tabGroupsExtensionId = id;
+    const { id: proxyRulesId } = await this.#browserCdp.send("Extensions.loadUnpacked", {
+      path: await this.#pathForChrome(proxyRulesExtensionDir),
+    });
+    this.#proxyRulesExtensionId = proxyRulesId;
     switch (mode) {
       case "stealth":
         break;
@@ -235,7 +268,7 @@ export class PatchrightEngine implements BrowserEngine {
 
   async groupTabs(pages: Page[], title: string, color: TabGroupColor): Promise<void> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
-    const worker = await this.#tabGroupsWorker();
+    const worker = await this.#extensionWorker(this.#tabGroupsExtensionId);
     await evaluateInWorker(
       worker,
       (request) => (globalThis as unknown as TabGroupsWorker).patchromeGroupTabs(request),
@@ -245,12 +278,35 @@ export class PatchrightEngine implements BrowserEngine {
 
   async describeTabGroups(pages: Page[]): Promise<TabGroupSummary[]> {
     const targetIds = await Promise.all(pages.map((page) => this.#targetIdOf(page)));
-    const worker = await this.#tabGroupsWorker();
+    const worker = await this.#extensionWorker(this.#tabGroupsExtensionId);
     return evaluateInWorker(
       worker,
       (request) => (globalThis as unknown as TabGroupsWorker).patchromeDescribeTabGroups(request),
       { targetIds },
     );
+  }
+
+  async applyProxyRules(rules: ProxyRulesForChrome | undefined): Promise<void> {
+    const worker = await this.#extensionWorker(this.#proxyRulesExtensionId);
+    await evaluateInWorker(
+      worker,
+      (arg) => (globalThis as unknown as ProxyRulesWorker).patchromeApplyProxyRules(arg ?? undefined),
+      rules ?? null,
+    );
+  }
+
+  async recentProxyFailures(sinceMs: number): Promise<ProxyFailure[]> {
+    const worker = await this.#extensionWorker(this.#proxyRulesExtensionId);
+    return evaluateInWorker(
+      worker,
+      (arg) => (globalThis as unknown as ProxyRulesWorker).patchromeRecentProxyFailures(arg),
+      { sinceMs },
+    );
+  }
+
+  async chromeTimeZone(): Promise<string> {
+    const worker = await this.#extensionWorker(this.#proxyRulesExtensionId);
+    return evaluateInWorker(worker, () => (globalThis as unknown as ProxyRulesWorker).patchromeTimeZone(), undefined);
   }
 
   async readProfileCopy(
@@ -384,13 +440,14 @@ export class PatchrightEngine implements BrowserEngine {
     return targetId;
   }
 
-  async #tabGroupsWorker(): Promise<Worker> {
+  async #extensionWorker(extensionId: string | undefined): Promise<Worker> {
     const context = this.#requireContext();
-    const prefix = `chrome-extension://${this.#tabGroupsExtensionId}/`;
-    const isTabGroupsWorker = (worker: Worker) => worker.url().startsWith(prefix);
+    if (extensionId === undefined) throw new Error("engine not launched");
+    const prefix = `chrome-extension://${extensionId}/`;
+    const isExtensionWorker = (worker: Worker) => worker.url().startsWith(prefix);
     return (
-      context.serviceWorkers().find(isTabGroupsWorker) ??
-      context.waitForEvent("serviceworker", { predicate: isTabGroupsWorker, timeout: extensionWorkerWaitMs })
+      context.serviceWorkers().find(isExtensionWorker) ??
+      context.waitForEvent("serviceworker", { predicate: isExtensionWorker, timeout: extensionWorkerWaitMs })
     );
   }
 
@@ -421,6 +478,12 @@ function launchArgsFor(mode: ProfileMode): string[] {
 interface TabGroupsWorker {
   patchromeGroupTabs(request: { targetIds: string[]; title: string; color: TabGroupColor }): Promise<void>;
   patchromeDescribeTabGroups(request: { targetIds: string[] }): Promise<TabGroupSummary[]>;
+}
+
+interface ProxyRulesWorker {
+  patchromeApplyProxyRules(rules: ProxyRulesForChrome | undefined): Promise<void>;
+  patchromeRecentProxyFailures(request: { sinceMs: number }): Promise<ProxyFailure[]>;
+  patchromeTimeZone(): Promise<string>;
 }
 
 // Patchright evaluates in an isolated world by default, where the extension's globals do not exist.

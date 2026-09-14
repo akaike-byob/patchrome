@@ -14,6 +14,8 @@ export const errorCodes = [
   "copy_denied",
   "no_display",
   "setup_required",
+  "proxy_auth_failed",
+  "proxy_unreachable",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 
@@ -62,6 +64,14 @@ export const commandNames = [
   "session-label",
   "daemon-status",
   "daemon-stop",
+  "proxy-add",
+  "proxy-remove",
+  "proxy-list",
+  "proxy-rule-add",
+  "proxy-rule-remove",
+  "proxy-rule-list",
+  "proxy-test",
+  "proxy-clear",
 ] as const;
 export type CommandName = (typeof commandNames)[number];
 
@@ -135,6 +145,8 @@ export function exitCodeFor(code: ErrorCode): number {
     case "copy_denied":
     case "no_display":
     case "setup_required":
+    case "proxy_auth_failed":
+    case "proxy_unreachable":
       return 1;
   }
 }

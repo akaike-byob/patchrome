@@ -256,3 +256,62 @@ describe("parseCli for scripting", () => {
     });
   });
 });
+
+describe("parseCli for proxy commands", () => {
+  it("maps proxy and proxy rule subcommands", () => {
+    expect(parse(["proxy", "rule", "add", "*.example.de", "de"])).toMatchObject({
+      command: "proxy-rule-add",
+      args: { pattern: "*.example.de", via: "de" },
+      shouldStartDaemon: true,
+    });
+    expect(parse(["proxy", "rule", "remove", "*"])).toMatchObject({
+      command: "proxy-rule-remove",
+      args: { pattern: "*" },
+    });
+    expect(parse(["proxy", "rule", "list"])).toMatchObject({ command: "proxy-rule-list" });
+    expect(parse(["proxy", "list"])).toMatchObject({ command: "proxy-list" });
+    expect(parse(["proxy", "remove", "de"])).toMatchObject({ command: "proxy-remove", args: { name: "de" } });
+    expect(parse(["proxy", "clear"])).toMatchObject({ command: "proxy-clear" });
+    expect(parse(["proxy", "test", "https://a.test/"], { PATCHROME_IP_ECHO_URL: "https://echo.test/" })).toMatchObject({
+      command: "proxy-test",
+      args: { url: "https://a.test/", ipEchoUrl: "https://echo.test/" },
+    });
+  });
+
+  it("reads the password from the named variable, never from an argument", () => {
+    expect(
+      parse(["proxy", "add", "de", "https://gw.test:8000", "--username", "alice", "--password-env", "DE_PASS"], {
+        DE_PASS: "s3cret",
+      }),
+    ).toMatchObject({
+      command: "proxy-add",
+      args: {
+        name: "de",
+        server: "https://gw.test:8000",
+        username: "alice",
+        password: "s3cret",
+        passwordFromStdin: false,
+      },
+    });
+    expect(
+      parse(["proxy", "add", "de", "https://gw.test:8000", "--username", "alice", "--password-stdin"]),
+    ).toMatchObject({
+      args: { password: undefined, passwordFromStdin: true },
+    });
+    const badInputs = [
+      ["proxy"],
+      ["proxy", "set", "de"],
+      ["proxy", "add", "de"],
+      ["proxy", "add", "de", "https://gw.test", "--password", "x"],
+      ["proxy", "add", "de", "https://gw.test", "--username", "a", "--password-env", "MISSING"],
+      ["proxy", "add", "de", "https://gw.test", "--password-stdin", "--password-env", "DE_PASS"],
+      ["proxy", "rule", "add", "*"],
+      ["proxy", "rule", "change", "*", "de"],
+    ];
+    for (const argv of badInputs)
+      expect(
+        errorCodeOf(() => parse(argv, { DE_PASS: "s3cret" })),
+        argv.join(" "),
+      ).toMatch(/bad_args|not-a-command-error/);
+  });
+});

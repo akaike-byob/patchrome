@@ -22,25 +22,30 @@ describe("displays", () => {
   });
 
   it("leaves the environment alone on macOS, on WSL, and when a display is already set", () => {
-    expect(resolveDisplay("macos", {}, none).kind).toBe("inherit");
-    expect(resolveDisplay("wsl", {}, none).kind).toBe("inherit");
-    expect(resolveDisplay("linux", { DISPLAY: ":0" }, { x: [":0", ":1"], wayland: [] }).kind).toBe("inherit");
-    expect(resolveDisplay("linux", { WAYLAND_DISPLAY: "wayland-0" }, none).kind).toBe("inherit");
+    expect(resolveDisplay("macos", {}, none, false).kind).toBe("inherit");
+    expect(resolveDisplay("wsl", {}, none, false).kind).toBe("inherit");
+    expect(resolveDisplay("linux", { DISPLAY: ":0" }, { x: [":0", ":1"], wayland: [] }, false).kind).toBe("inherit");
+    expect(resolveDisplay("linux", { WAYLAND_DISPLAY: "wayland-0" }, none, false).kind).toBe("inherit");
+  });
+
+  it("asks for no display when Chrome runs headless", () => {
+    expect(resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: [] }, true).kind).toBe("inherit");
+    expect(resolveDisplay("linux", {}, none, true).kind).toBe("inherit");
   });
 
   it("picks the only display on the machine", () => {
-    expect(resolveDisplay("linux", {}, { x: [":0"], wayland: [] })).toEqual({
+    expect(resolveDisplay("linux", {}, { x: [":0"], wayland: [] }, false)).toEqual({
       kind: "use",
       assignments: [{ variable: "DISPLAY", value: ":0" }],
     });
-    expect(resolveDisplay("linux", { DISPLAY: "" }, { x: [], wayland: ["wayland-1"] })).toEqual({
+    expect(resolveDisplay("linux", { DISPLAY: "" }, { x: [], wayland: ["wayland-1"] }, false)).toEqual({
       kind: "use",
       assignments: [{ variable: "WAYLAND_DISPLAY", value: "wayland-1" }],
     });
   });
 
   it("reads a Wayland desktop with its Xwayland socket as one display, and sets both", () => {
-    expect(resolveDisplay("linux", {}, { x: [":0"], wayland: ["wayland-0"] })).toEqual({
+    expect(resolveDisplay("linux", {}, { x: [":0"], wayland: ["wayland-0"] }, false)).toEqual({
       kind: "use",
       assignments: [
         { variable: "DISPLAY", value: ":0" },
@@ -50,14 +55,14 @@ describe("displays", () => {
   });
 
   it("suggests an X display before a Wayland one", () => {
-    const choice = resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: ["wayland-0"] });
+    const choice = resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: ["wayland-0"] }, false);
     if (choice.kind !== "missing") throw new Error(`expected a missing display, got ${choice.kind}`);
     expect(choice.error.hint).toContain(":20, :99, wayland-0");
     expect(choice.error.hint).toContain("`DISPLAY=:20 patchrome session`");
   });
 
   it("names every candidate when several displays could be the person's", () => {
-    const choice = resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: [] });
+    const choice = resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: [] }, false);
     if (choice.kind !== "missing") throw new Error(`expected a missing display, got ${choice.kind}`);
     expect(choice.error.code).toBe("no_display");
     expect(choice.error.message).toContain("neither DISPLAY nor WAYLAND_DISPLAY is set");
@@ -66,7 +71,7 @@ describe("displays", () => {
   });
 
   it("sends a machine with no display to xvfb or a desktop session", () => {
-    const choice = resolveDisplay("linux", {}, none);
+    const choice = resolveDisplay("linux", {}, none, false);
     if (choice.kind !== "missing") throw new Error(`expected a missing display, got ${choice.kind}`);
     expect(choice.error.hint).toContain("xvfb-run");
   });

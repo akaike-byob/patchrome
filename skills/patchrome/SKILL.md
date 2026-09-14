@@ -36,6 +36,7 @@ snapshot line), `--text <text>`, `--label <form label>` or `--selector <css>`, w
 | Scraping: JSON API responses, `extract` rows, globs, HAR, blocking or mocking requests | [references/scraping.md](references/scraping.md) |
 | A repeatable script, `session history`, `pipe`, the Node library, sh/Python/Go callers | [references/scripting.md](references/scripting.md) |
 | A site needs sign-in: `login`, `state import`, `state save`/`load`, a separate account | [references/logins.md](references/logins.md) |
+| Sites through an HTTPS proxy: `proxy add`, `proxy rule`, `proxy test` | [references/proxies.md](references/proxies.md) |
 | iframes, closed shadow roots, canvas, CAPTCHAs, bot-wall interstitials | [references/hard-pages.md](references/hard-pages.md) |
 | Debugging your own localhost app: console, page errors, traces, CDP | [references/debugging.md](references/debugging.md) |
 
@@ -53,6 +54,8 @@ snapshot line), `--text <text>`, `--label <form label>` or `--selector <css>`, w
 - Never run `daemon stop` or `session close <other session>` unless the user asks; both end other
   agents' work.
 - Keep request volume low on protected sites: no tight loops of `goto`.
+- Proxy rules route every session in the profile: change them only when the user asks. Never put a
+  proxy password in a command's words.
 - Session name comes from `--session`, `$PATCHROME_SESSION`, `$CLAUDE_CODE_SESSION_ID`, the tty, then
   the parent process. If `patchrome session` prints a new name on each call, export
   `PATCHROME_SESSION` for the whole task.
@@ -73,4 +76,6 @@ Exit code 0 ok, 1 command error, 2 bad usage. `--json` errors carry a `code`:
 | `unsupported_in_stealth` | the command needs `--profile debug`, which is only for your own apps |
 | `copy_denied` | the user refused a login copy: tell them, do not retry, never copy cookies another way |
 | `no_display` | Linux with no desktop in this shell: rerun as the hint says, e.g. `DISPLAY=:20 patchrome session` |
+| `proxy_auth_failed` | the proxy refused its password: tell the user, do not retry |
+| `proxy_unreachable` | a proxy is down or refused the site: `proxy test <url>`, then tell the user |
 | `setup_required` | the machine needs a change, such as WSL networking mode: tell the user the message and hint, do not retry |

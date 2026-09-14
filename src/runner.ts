@@ -63,6 +63,12 @@ export class CommandRunner {
             return { ok: true, data: (await localActionData(parsed)).fields };
         }
       }
+      if (parsed.args.passwordFromStdin === true)
+        throw new CommandError(
+          "bad_args",
+          "--password-stdin reads the terminal's stdin, which pipe and the library do not have",
+          "use --password-env <VAR> instead",
+        );
       const response = await this.#connectionFor(parsed.profile).request({
         ...parsed,
         argv,

@@ -174,6 +174,27 @@ export async function startDaemonAnsweringCopies(home: string, answer: ApprovalA
   return { asked };
 }
 
+// A daemon in the test process whose Chrome and `proxy test` trust the given certificates, for HTTPS proxies
+// on self-signed ones. `exited` settles once the daemon has saved its sessions and closed Chrome, so a restart
+// never races the old daemon for the profile.
+export async function startDaemonTrusting(
+  home: string,
+  trustedCertificates: string[],
+): Promise<{ exited: Promise<void> }> {
+  let markExited = () => {};
+  const exited = new Promise<void>((resolve) => (markExited = resolve));
+  await runDaemon(
+    "stealth",
+    { ...process.env, PATCHROME_HOME: home },
+    {
+      prompts: { approval: "unprompted", unpromptedReason: "test", async notify() {} },
+      exitProcess: () => markExited(),
+      trustedCertificates,
+    },
+  );
+  return { exited };
+}
+
 export async function stopDaemon(home: string): Promise<void> {
   await runCli(home, "teardown", ["daemon", "stop"]);
 }

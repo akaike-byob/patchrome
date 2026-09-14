@@ -1,3 +1,4 @@
+import { createHash, X509Certificate } from "node:crypto";
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import {
   sessionFolderName,
 } from "./paths.ts";
 import { fixProfileMode } from "./profile-mode.ts";
+import { ProxyRouting } from "./proxy-routing.ts";
 import {
   CommandError,
   isCommandName,
@@ -48,6 +50,8 @@ const launchFailureGraceMs = 3_000;
 export interface DaemonOptions {
   prompts?: HostPrompts;
   exitProcess?: (code: number) => void;
+  // PEM certificates Chrome and `proxy test` trust, so tests can run HTTPS proxies on self-signed certificates.
+  trustedCertificates?: string[];
 }
 
 export async function runDaemon(
@@ -85,7 +89,18 @@ export async function runDaemon(
   };
 
   const isHeadless = isTestHeadlessFrom(env);
-  const engine: BrowserEngine = new PatchrightEngine({ chromeHost: chromeHostFor(detectHostPlatform()), isHeadless });
+  const engine: BrowserEngine = new PatchrightEngine({
+    chromeHost: chromeHostFor(detectHostPlatform()),
+    isHeadless,
+    trustedSpkiHashes: (options.trustedCertificates ?? []).map(spkiHashOf),
+  });
+  const proxy = new ProxyRouting({
+    paths: { configPath: paths.proxyConfigPath, secretsPath: paths.proxySecretsPath },
+    engine,
+    auditLogPath: auditLogPathFrom(env),
+    profile,
+    log,
+  });
   const events = new SessionEvents();
   const network = new NetworkLog((entry) =>
     events.publish(entry.session, { kind: "response", tabId: entry.tabId, entry, atMs: Date.now() }),
@@ -228,6 +243,8 @@ export async function runDaemon(
       profile,
       log,
     }),
+    proxy,
+    trustedCertificates: options.trustedCertificates,
   };
 
   // Listening before Chrome is up lets concurrent starters connect at once; requests wait on launch.
@@ -262,7 +279,7 @@ export async function runDaemon(
   // Chrome inherits this process's environment, so a display picked here is the one it opens on.
   async function launchBrowser(): Promise<void> {
     const displays = listDisplays(env);
-    const choice = resolveDisplay(detectHostPlatform(), env, displays);
+    const choice = resolveDisplay(detectHostPlatform(), env, displays, isHeadless);
     switch (choice.kind) {
       case "inherit":
         break;
@@ -278,6 +295,8 @@ export async function runDaemon(
       case "missing":
         throw choice.error;
     }
+    // A broken proxy file stops the launch before Chrome opens, so no page ever loads without its rules.
+    await proxy.load();
     try {
       await engine.launch(paths.chromeProfileDir, mode);
     } catch (err) {
@@ -285,6 +304,7 @@ export async function runDaemon(
       log(`chrome launch output: ${String(err)}`);
       throw chromeLaunchError(err, displays);
     }
+    await proxy.applyToChrome();
   }
 
   // A connection carries one request from the CLI, or many from `pipe` and the library.
@@ -407,6 +427,12 @@ export function isClosedTargetRejection(reason: unknown): boolean {
     reason.constructor.name === "ProtocolError" &&
     (reason as Error & { type?: unknown }).type === "closed"
   );
+}
+
+// The value Chrome's --ignore-certificate-errors-spki-list takes: base64 SHA-256 of the DER public key.
+function spkiHashOf(pem: string): string {
+  const publicKey = new X509Certificate(pem).publicKey.export({ type: "spki", format: "der" });
+  return createHash("sha256").update(publicKey).digest("base64");
 }
 
 function send(socket: Socket, response: DaemonResponse | DaemonStreamLine) {
