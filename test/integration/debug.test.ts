@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeHome, runCli, startFixtureServer, type FixtureServer } from "./helpers.ts";
+import { chromeUserDataDirOf, makeHome, runCli, startFixtureServer, type FixtureServer } from "./helpers.ts";
 
 const binPath = fileURLToPath(new URL("../../bin/patchrome.js", import.meta.url));
 
@@ -178,7 +178,7 @@ describe("debug profile", () => {
       expect(refused.json.error?.code, args.join(" ")).toBe("unsupported_in_stealth");
       expect(refused.exitCode).toBe(1);
     }
-    expect(existsSync(join(home, "stealth", "chrome-profile", "DevToolsActivePort"))).toBe(false);
+    expect(existsSync(join(await chromeUserDataDirOf(home, "stealth"), "DevToolsActivePort"))).toBe(false);
     const status = (await stealth("sneaky", ["daemon", "status"])).json.data;
     expect(status).toMatchObject({ mode: "stealth" });
     expect(status).not.toHaveProperty("devtoolsUrl");

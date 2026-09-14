@@ -1,11 +1,12 @@
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "patchright";
 import { parseStorageState } from "../../src/commands.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  loginCopiesDir,
   makeHome,
+  makeTestChrome,
   runCli,
   startDaemonAnsweringCopies,
   startFixtureServer,
@@ -25,11 +26,11 @@ const readSeededRecords = `new Promise((resolve) => {
 })`;
 const seededRecords = { version: 3, signedInAt: "2023-11-14T22:13:20.000Z", key: [7, 8, 9], refresh: "refresh-token" };
 
-// Stands in for the everyday Chrome: a user data dir whose cookies Chrome encrypted with the real keychain key.
+// Stands in for the everyday Chrome: a user data dir whose cookies Chrome encrypted with the real OS key.
 async function seedEverydayChrome(fixture: FixtureServer): Promise<string> {
-  const userDataDir = makeHome("everyday-chrome");
+  const { userDataDir, launch } = await makeTestChrome("everyday-chrome");
   const chrome = await chromium.launchPersistentContext(userDataDir, {
-    channel: "chrome",
+    ...launch,
     headless: true,
     ignoreDefaultArgs: ["--use-mock-keychain", "--password-store=basic"],
   });
@@ -42,11 +43,16 @@ async function seedEverydayChrome(fixture: FixtureServer): Promise<string> {
   await chrome.close();
   renameSync(join(userDataDir, "Default"), join(userDataDir, "Profile 1"));
   mkdirSync(join(userDataDir, "Default"));
+  // Windows Chrome keeps the cookie key in Local State, so the profile list goes in beside it. The last used
+  // profile is not Default, the folder every copy lands in.
+  const localStatePath = join(userDataDir, "Local State");
+  const localState = existsSync(localStatePath) ? (JSON.parse(readFileSync(localStatePath, "utf8")) as object) : {};
   writeFileSync(
-    join(userDataDir, "Local State"),
+    localStatePath,
     JSON.stringify({
+      ...localState,
       profile: {
-        last_used: "Default",
+        last_used: "Profile 1",
         info_cache: {
           Default: { name: "Personal", user_name: "" },
           "Profile 1": { name: "Work", user_name: "ada@example.test" },
@@ -107,7 +113,7 @@ describe("state import from the everyday Chrome", () => {
 
     // The seeded Chrome also signed in to localhost; the import named 127.0.0.1 only.
     expect((await runCli(home, "reader", ["cookies", "--domain", "localhost"])).json.data?.cookies).toEqual([]);
-    expect(readdirSync(tmpdir()).filter((name) => name.startsWith("patchrome-login-copy-"))).toEqual([]);
+    expect(readdirSync(await loginCopiesDir()).filter((name) => name.startsWith("patchrome-login-copy-"))).toEqual([]);
   });
 
   it("imports into an isolated session without touching the shared profile", async () => {
@@ -218,7 +224,7 @@ describe("state import from the everyday Chrome", () => {
       `pass --from with one of: "Personal" (Default), "Work" (Profile 1, ada@example.test)`,
     );
 
-    const empty = await runCli(home, "importer", ["state", "import", "127.0.0.1"], chromeEnv);
+    const empty = await runCli(home, "importer", ["state", "import", "127.0.0.1", "--from", "Personal"], chromeEnv);
     expect(empty.exitCode).toBe(2);
     expect(empty.json.error?.message).toBe(
       `Chrome profile "Personal" (Default) has no cookies or storage for 127.0.0.1`,

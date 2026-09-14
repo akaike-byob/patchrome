@@ -1,11 +1,22 @@
-import { execFile } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import type { LaunchOptions } from "patchright";
+import { afterAll } from "vitest";
 import type { ApprovalAnswer } from "../../src/copy-guard.ts";
 import { runDaemon } from "../../src/daemon.ts";
+import { chromeHostFor, type ChromeHost } from "../../src/engine.ts";
+import { detectHostPlatform } from "../../src/host-platform.ts";
+import {
+  findWindowsChrome,
+  windowsChromeProfileDirFor,
+  writeChromeLauncher,
+  type WindowsChrome,
+} from "../../src/windows-chrome.ts";
 
 const binPath = fileURLToPath(new URL("../../bin/patchrome.js", import.meta.url));
 
@@ -16,9 +27,103 @@ export interface CliResult {
   json: { ok: boolean; data?: Record<string, unknown>; error?: { code: string; message: string; hint?: string } };
 }
 
+const homes: string[] = [];
+
 export function makeHome(label: string): string {
-  return mkdtempSync(join(tmpdir(), `patchrome-${label}-`));
+  const home = mkdtempSync(join(tmpdir(), `patchrome-${label}-`));
+  homes.push(home);
+  return home;
 }
+
+export const chromeHost: ChromeHost = chromeHostFor(detectHostPlatform());
+let windowsChrome: Promise<WindowsChrome> | undefined;
+
+function requireWindowsChrome(): Promise<WindowsChrome> {
+  windowsChrome ??= findWindowsChrome();
+  return windowsChrome;
+}
+
+// The user data dir a daemon's Chrome uses for a profile. On WSL it is on the Windows disk.
+export async function chromeUserDataDirOf(home: string, profile: string): Promise<string> {
+  const chromeProfileDir = join(home, profile, "chrome-profile");
+  switch (chromeHost) {
+    case "local":
+      return chromeProfileDir;
+    case "windows":
+      return windowsChromeProfileDirFor(await requireWindowsChrome(), chromeProfileDir, process.env.WSL_DISTRO_NAME);
+  }
+}
+
+// A Chrome for a test to drive directly, from the same install the daemon uses, with its files where that
+// Chrome can keep them.
+export async function makeTestChrome(label: string): Promise<{ userDataDir: string; launch: LaunchOptions }> {
+  switch (chromeHost) {
+    case "local":
+      return { userDataDir: makeHome(label), launch: { channel: "chrome" } };
+    case "windows": {
+      const found = await requireWindowsChrome();
+      const testChromesDir = join(found.localAppDataDir, "patchrome", "test-chromes");
+      mkdirSync(testChromesDir, { recursive: true });
+      const userDataDir = mkdtempSync(join(testChromesDir, `${label}-`));
+      testChromeDirs.push(userDataDir);
+      return { userDataDir, launch: { executablePath: await writeChromeLauncher(makeHome("launcher"), found) } };
+    }
+  }
+}
+
+// Where the daemon copies an everyday Chrome profile during an import.
+export async function loginCopiesDir(): Promise<string> {
+  switch (chromeHost) {
+    case "local":
+      return tmpdir();
+    case "windows":
+      return join((await requireWindowsChrome()).localAppDataDir, "patchrome", "login-copies");
+  }
+}
+
+const testChromeDirs: string[] = [];
+
+export function daemonPidsFor(home: string): number[] {
+  const table = execFileSync("ps", ["-Ao", "pid=,command="], { encoding: "utf8" });
+  return table
+    .split("\n")
+    .filter((line) => line.includes("__daemon"))
+    .map((line) => Number(line.trim().split(/\s+/)[0]))
+    .filter((pid) => daemonUsesHome(pid, home));
+}
+
+function daemonUsesHome(pid: number, home: string): boolean {
+  try {
+    if (process.platform === "linux") return readFileSync(`/proc/${pid}/environ`, "utf8").includes(home);
+    return execFileSync("ps", ["-Eww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(home);
+  } catch {
+    return false;
+  }
+}
+
+const daemonExitWaitMs = 15_000;
+
+// Homes in /tmp go away with the machine; their Windows Chrome profiles would stay on C: for good. A stopped
+// daemon's Chrome still writes files as it closes, so cleanup waits for the daemon to exit. A daemon a test
+// left running keeps its profile.
+afterAll(async () => {
+  if (chromeHost === "local") return;
+  const dirs = [...testChromeDirs];
+  const deadlineMs = Date.now() + daemonExitWaitMs;
+  for (const home of homes) {
+    while (daemonPidsFor(home).length > 0 && Date.now() < deadlineMs) await sleep(250);
+    if (daemonPidsFor(home).length > 0) continue;
+    for (const profile of readdirSync(home, { withFileTypes: true }).filter((entry) => entry.isDirectory()))
+      dirs.push(await chromeUserDataDirOf(home, profile.name));
+  }
+  for (const dir of dirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      // Held by a Chrome another process still runs, such as a test's own.
+    }
+  }
+});
 
 // Every call is a fresh process, as it is for an agent, and always asks for --json to assert on fields.
 export function runCli(
@@ -124,6 +229,18 @@ export function startFixtureServer(): Promise<FixtureServer> {
         const code = root.querySelector("#code");
         code.addEventListener("input", (event) => parent.postMessage({ kind: "typed", value: code.value, isTrusted: event.isTrusted }, "*"));
       </script>`,
+    }),
+    "/files": () => ({
+      body: `<title>files</title>
+        <input type="file" id="one" aria-label="one">
+        <input type="file" id="many" multiple aria-label="many">
+        <input type="file" id="folder" webkitdirectory aria-label="folder">
+        <a id="report" href="/report.csv">report</a>`,
+    }),
+    "/report.csv": () => ({
+      contentType: "text/csv",
+      headers: { "content-disposition": 'attachment; filename="report.csv"' },
+      body: "sku,price\na1,10\n",
     }),
     "/popup": () => ({ body: `<title>opener</title><a href="/form?name=popup" target="_blank">Open popup</a>` }),
     "/slow": () => ({ body: "<title>slow</title>finally", delayMs: 5_000 }),

@@ -8,7 +8,7 @@ import { CopyGuard, type HostPrompts } from "./copy-guard.ts";
 import { detectHostPlatform } from "./host-platform.ts";
 import { hostPromptsFor } from "./host-prompts.ts";
 import { restoreSession, runCommand, type CommandContext } from "./commands.ts";
-import { PatchrightEngine, type BrowserEngine } from "./engine.ts";
+import { chromeHostFor, PatchrightEngine, type BrowserEngine } from "./engine.ts";
 import { chromeLaunchError, listDisplays, resolveDisplay } from "./display.ts";
 import { PopupFocusReturn } from "./focus.ts";
 import { PageDiagnostics } from "./diagnostics.ts";
@@ -85,7 +85,7 @@ export async function runDaemon(
   };
 
   const isHeadless = isTestHeadlessFrom(env);
-  const engine: BrowserEngine = new PatchrightEngine({ isHeadless });
+  const engine: BrowserEngine = new PatchrightEngine({ chromeHost: chromeHostFor(detectHostPlatform()), isHeadless });
   const events = new SessionEvents();
   const network = new NetworkLog((entry) =>
     events.publish(entry.session, { kind: "response", tabId: entry.tabId, entry, atMs: Date.now() }),
@@ -213,7 +213,6 @@ export async function runDaemon(
     version,
     buildId,
     sessionsDir: paths.sessionsDir,
-    chromeProfileDir: paths.chromeProfileDir,
     profile,
     startedAtMs: Date.now(),
     requestShutdown: () => setImmediate(() => void shutdown("daemon stop")),

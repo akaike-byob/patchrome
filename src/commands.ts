@@ -75,8 +75,6 @@ export interface CommandContext {
   version: string;
   buildId: string;
   sessionsDir: string;
-  // The Chrome user data dir the daemon launched, read by state export to find which origins hold storage.
-  chromeProfileDir: string;
   profile: string;
   startedAtMs: number;
   requestShutdown: () => void;
@@ -638,7 +636,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       if (browserContextId === undefined) {
         const workDir = await mkdtemp(join(tmpdir(), "patchrome-storage-origins-"));
         try {
-          const onDisk = await siteStorageOrigins(join(ctx.chromeProfileDir, "Default"), site, workDir);
+          const onDisk = await siteStorageOrigins(join(ctx.engine.userDataDir(), "Default"), site, workDir);
           for (const origin of onDisk) if (isExported(new URL(origin).hostname)) candidates.add(origin);
         } finally {
           await rm(workDir, { recursive: true, force: true });
@@ -707,17 +705,18 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
     }
     case "state-import": {
       const site = siteFromInput(requiredString(args, "site"));
-      const userDataDir = requiredString(args, "chromeUserDataDir");
+      const userDataDir = await ctx.engine.importChromeUserDataDir(optionalString(args, "chromeUserDataDir"));
       const { profiles, lastUsedFolder } = await listChromeProfiles(userDataDir);
       const chromeProfile = resolveChromeProfile(profiles, optionalString(args, "from"), lastUsedFolder);
-      const copyDir = await mkdtemp(join(tmpdir(), "patchrome-login-copy-"));
+      const copyDir = await ctx.engine.makeProfileCopyDir();
       let read: Awaited<ReturnType<BrowserEngine["readProfileCopy"]>>;
       try {
-        const origins = await copySiteLoginStorage(join(userDataDir, chromeProfile.folder), site, copyDir);
+        const origins = await copySiteLoginStorage(userDataDir, chromeProfile.folder, site, copyDir);
         read = await ctx.engine.readProfileCopy(copyDir, origins);
       } finally {
         // The copy holds decryptable cookies for every site in the profile.
-        await rm(copyDir, { recursive: true, force: true });
+        // Windows holds files a just-closed Chrome had open for a moment longer.
+        await rm(copyDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       }
       const cookies = read.cookies.filter((cookie) => hostBelongsToSite(cookie.domain, site));
       const stored = read.origins.filter((origin) => origin.localStorage.length > 0 || origin.indexedDB.length > 0);

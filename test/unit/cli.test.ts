@@ -127,6 +127,8 @@ describe("parseCli for M2 commands", () => {
       timeoutMs: 120_000,
       args: { site: "github.com", from: "Profile 1", chromeUserDataDir: "/chrome" },
     });
+    // Without one, the daemon picks the everyday Chrome where its own Chrome runs, which on WSL is Windows.
+    expect(parse(["state", "import", "github.com"], {})).toMatchObject({ args: { chromeUserDataDir: undefined } });
     expect(errorCodeOf(() => parse(["state", "import"]))).toBe("bad_args");
   });
 
