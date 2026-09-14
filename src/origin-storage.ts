@@ -166,8 +166,9 @@ export function fromStorageStateIndexedDb(databases: StorageStateIndexedDb[]): I
         multiEntry: index.multiEntry,
       })),
       records: store.records.map((record) => ({
-        key: record.key ?? decodeValue(record.keyEncoded),
-        value: record.value ?? decodeValue(record.valueEncoded),
+        // A stored null is plain JSON, so presence decides, not ??.
+        key: "key" in record ? record.key : decodeValue(record.keyEncoded),
+        value: "value" in record ? record.value : decodeValue(record.valueEncoded),
       })),
     })),
   }));

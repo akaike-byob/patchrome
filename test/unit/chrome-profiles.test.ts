@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   originOfIndexedDbFolder,
   resolveChromeProfile,
   siteFromInput,
+  siteStorageOrigins,
 } from "../../src/chrome-profiles.ts";
 import { CommandError } from "../../src/protocol.ts";
 
@@ -106,5 +107,20 @@ describe("Chrome profiles", () => {
       "http://127.0.0.1:9000",
       "https://app.example.com",
     ]);
+  });
+
+  it("lists a live profile's site origins without copying the site's data", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "patchrome-profile-"));
+    const leveldbDir = join(profileDir, "Local Storage", "leveldb");
+    mkdirSync(leveldbDir, { recursive: true });
+    writeFileSync(join(leveldbDir, "000005.ldb"), "META:https://app.example.com\u0001META:https://other.test\u0001");
+    mkdirSync(join(profileDir, "IndexedDB", "https_id.example.com_0.indexeddb.leveldb"), { recursive: true });
+    mkdirSync(join(profileDir, "IndexedDB", "https_other.test_0.indexeddb.leveldb"), { recursive: true });
+    const workDir = mkdtempSync(join(tmpdir(), "patchrome-storage-origins-"));
+    expect(await siteStorageOrigins(profileDir, "example.com", workDir)).toEqual([
+      "https://app.example.com",
+      "https://id.example.com",
+    ]);
+    expect(readdirSync(workDir)).toEqual([]);
   });
 });
