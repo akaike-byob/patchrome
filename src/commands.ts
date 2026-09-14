@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Cookie, Locator, Page } from "patchright";
 import { inspectChallenges, waitForPersonToSolve } from "./challenges.ts";
 import {
@@ -11,6 +11,7 @@ import {
   listChromeProfiles,
   resolveChromeProfile,
   siteFromInput,
+  siteStorageOrigins,
 } from "./chrome-profiles.ts";
 import {
   parseWatchEventKinds,
@@ -635,12 +636,12 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       );
       for (const cookie of cookies) candidates.add(`https://${cookie.domain.replace(/^\./, "")}`);
       if (browserContextId === undefined) {
-        const copyDir = await mkdtemp(join(tmpdir(), "patchrome-login-copy-"));
+        const workDir = await mkdtemp(join(tmpdir(), "patchrome-storage-origins-"));
         try {
-          const onDisk = await copySiteLoginStorage(join(ctx.chromeProfileDir, "Default"), site, copyDir);
+          const onDisk = await siteStorageOrigins(join(ctx.chromeProfileDir, "Default"), site, workDir);
           for (const origin of onDisk) if (isExported(new URL(origin).hostname)) candidates.add(origin);
         } finally {
-          await rm(copyDir, { recursive: true, force: true });
+          await rm(workDir, { recursive: true, force: true });
         }
       }
       const stored: OriginStorage[] = [];
@@ -672,9 +673,16 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           indexedDB: toStorageStateIndexedDb(origin.indexedDB),
         })),
       };
-      await writeFile(file, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-      // mode applies only to a new file; an overwritten one keeps whatever it had.
-      await chmod(file, 0o600);
+      // The tokens go into a fresh 0600 file that then replaces the target, so they are never readable through an
+      // existing file's wider mode, and a symlink at the target is replaced rather than followed.
+      const partial = join(dirname(file), `.${basename(file)}.${process.pid}.partial`);
+      try {
+        await writeFile(partial, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+        await rename(partial, file);
+      } catch (err) {
+        await rm(partial, { force: true });
+        throw err;
+      }
       return {
         lines: [
           `exported ${site} to ${file}`,

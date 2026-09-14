@@ -29,6 +29,7 @@ const database: IndexedDbDatabase = {
       records: [
         { key: "firebase:authUser", value: "refresh-token" },
         { key: [1, new Date(0)], value: 12n },
+        { key: "signedOut", value: null },
       ],
     },
   ],
