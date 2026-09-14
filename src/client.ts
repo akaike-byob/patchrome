@@ -5,7 +5,7 @@ import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { idleMsFrom, profilePaths, type ProfilePaths } from "./paths.ts";
+import { idleMsFrom, isTestHeadlessFrom, profilePaths, type ProfilePaths } from "./paths.ts";
 import {
   CommandError,
   type CommandArgs,
@@ -51,6 +51,7 @@ export class DaemonConnection {
 
   constructor(profile: string, env: NodeJS.ProcessEnv = process.env) {
     idleMsFrom(env);
+    isTestHeadlessFrom(env);
     this.#profile = profile;
     this.#env = env;
   }

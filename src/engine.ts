@@ -57,21 +57,24 @@ export class PatchrightEngine implements BrowserEngine {
   #endpoint: DebuggingEndpoint | undefined;
   #tabGroupsExtensionId: string | undefined;
   #targetIdByPage = new WeakMap<Page, Promise<string>>();
+  #isHeadless: boolean;
+
+  constructor({ isHeadless }: { isHeadless: boolean }) {
+    this.#isHeadless = isHeadless;
+  }
 
   async launch(chromeProfileDir: string, mode: ProfileMode): Promise<void> {
     // A port file left by an earlier Chrome would point at a dead port.
     await rm(join(chromeProfileDir, "DevToolsActivePort"), { force: true });
-    const context = await keepFocusDuring(
-      chromium.launchPersistentContext(chromeProfileDir, {
-        channel: "chrome",
-        headless: false,
-        viewport: null,
-        // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
-        chromiumSandbox: true,
-        args: launchArgsFor(mode),
-      }),
-      focusGraceMs,
-    );
+    const launched = chromium.launchPersistentContext(chromeProfileDir, {
+      channel: "chrome",
+      headless: this.#isHeadless,
+      viewport: null,
+      // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
+      chromiumSandbox: true,
+      args: launchArgsFor(mode),
+    });
+    const context = this.#isHeadless ? await launched : await keepFocusDuring(launched, focusGraceMs);
     context.on("close", () => {
       for (const listener of this.#closedListeners) listener();
     });

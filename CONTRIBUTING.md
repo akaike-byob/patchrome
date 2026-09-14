@@ -9,7 +9,7 @@ npm install
 npm run format:check   # oxfmt; `npm run format` rewrites
 npm run lint           # oxlint with type-aware rules
 npm run typecheck
-npm test        # unit tests plus integration tests, which open a headed Chrome
+npm test        # unit tests plus integration tests, which open Chrome headless locally and headed in CI
 ```
 
 ## Pull requests
