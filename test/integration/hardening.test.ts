@@ -57,7 +57,9 @@ describe("daemon restart and isolation", () => {
 
     const status = await runCli(home, "fresh", ["daemon", "status"]);
     expect(status.json.data?.pid).not.toBe(pid);
-    const tabs = (await runCli(home, "keeper", ["tabs"])).json.data?.tabs as TabRow[];
+    const listed = await runCli(home, "keeper", ["tabs"]);
+    expect(listed.json, listed.stdout + listed.stderr).toMatchObject({ ok: true });
+    const tabs = listed.json.data?.tabs as TabRow[];
     expect(tabs.map((tab) => [tab.id, tab.url, tab.isCurrent])).toEqual([
       ["t1", `${fixture.origin}/form?name=one`, true],
       ["t2", `${fixture.origin}/form?name=two`, false],

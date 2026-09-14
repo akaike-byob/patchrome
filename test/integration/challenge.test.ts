@@ -15,13 +15,14 @@ describe("widgets in cross-site iframes and closed shadow roots", () => {
   });
 
   it("detects a pending challenge, clicks through the closed shadow root, and sees it solved", async () => {
-    expect((await runCli(home, "solver", ["open", `${fixture.origin}/captcha`])).json.ok).toBe(true);
+    const opened = await runCli(home, "solver", ["open", `${fixture.origin}/captcha`]);
+    expect(opened.json, opened.stdout + opened.stderr).toMatchObject({ ok: true });
     await runCli(home, "solver", ["wait", "--selector", "iframe"]);
     const pending = await runCli(home, "solver", ["challenge"]);
     expect(pending.json).toMatchObject({ ok: true, data: { state: "pending" } });
 
     const clicked = await runCli(home, "solver", ["click", "--selector", "#cb", "--frame", "iframe"]);
-    expect(clicked.json.ok).toBe(true);
+    expect(clicked.json, clicked.stdout + clicked.stderr).toMatchObject({ ok: true });
     const solved = await runCli(home, "solver", ["challenge"]);
     expect(solved.json).toMatchObject({ ok: true, data: { state: "solved" } });
     const token = await runCli(home, "solver", [
@@ -34,8 +35,10 @@ describe("widgets in cross-site iframes and closed shadow roots", () => {
   it("types trusted keys into a field the snapshot cannot see", async () => {
     await runCli(home, "typist", ["open", `${fixture.origin}/captcha`]);
     await runCli(home, "typist", ["wait", "--selector", "iframe"]);
-    expect((await runCli(home, "typist", ["click", "--selector", "#code", "--frame", "iframe"])).json.ok).toBe(true);
-    expect((await runCli(home, "typist", ["type", "ab1"])).json.ok).toBe(true);
+    const clicked = await runCli(home, "typist", ["click", "--selector", "#code", "--frame", "iframe"]);
+    expect(clicked.json, clicked.stdout + clicked.stderr).toMatchObject({ ok: true });
+    const typedKeys = await runCli(home, "typist", ["type", "ab1"]);
+    expect(typedKeys.json, typedKeys.stdout + typedKeys.stderr).toMatchObject({ ok: true });
     const typed = await runCli(home, "typist", ["wait", "--text", "ab1 true"]);
     expect(typed.json.ok).toBe(true);
   });
