@@ -43,7 +43,8 @@ async function seedEverydayChrome(fixture: FixtureServer): Promise<string> {
   await chrome.close();
   renameSync(join(userDataDir, "Default"), join(userDataDir, "Profile 1"));
   mkdirSync(join(userDataDir, "Default"));
-  // Windows Chrome keeps the cookie key in Local State, so the profile list goes in beside it.
+  // Windows Chrome keeps the cookie key in Local State, so the profile list goes in beside it. The last used
+  // profile is not Default, the folder every copy lands in.
   const localStatePath = join(userDataDir, "Local State");
   const localState = existsSync(localStatePath) ? (JSON.parse(readFileSync(localStatePath, "utf8")) as object) : {};
   writeFileSync(
@@ -51,7 +52,7 @@ async function seedEverydayChrome(fixture: FixtureServer): Promise<string> {
     JSON.stringify({
       ...localState,
       profile: {
-        last_used: "Default",
+        last_used: "Profile 1",
         info_cache: {
           Default: { name: "Personal", user_name: "" },
           "Profile 1": { name: "Work", user_name: "ada@example.test" },
@@ -223,7 +224,7 @@ describe("state import from the everyday Chrome", () => {
       `pass --from with one of: "Personal" (Default), "Work" (Profile 1, ada@example.test)`,
     );
 
-    const empty = await runCli(home, "importer", ["state", "import", "127.0.0.1"], chromeEnv);
+    const empty = await runCli(home, "importer", ["state", "import", "127.0.0.1", "--from", "Personal"], chromeEnv);
     expect(empty.exitCode).toBe(2);
     expect(empty.json.error?.message).toBe(
       `Chrome profile "Personal" (Default) has no cookies or storage for 127.0.0.1`,
