@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { encodedPowerShell, powerShellString } from "./host-prompts-wsl.ts";
 import { CommandError } from "./protocol.ts";
@@ -169,11 +170,10 @@ export function windowsChromeProfilesRoot(windowsChrome: WindowsChrome): string 
 // Node that runs patchrome, which may not be the first node on PATH.
 export async function writeChromeLauncher(dir: string, windowsChrome: WindowsChrome): Promise<string> {
   const launcherPath = join(dir, "windows-chrome-launcher.sh");
-  const relayEntry = new URL(
-    `./windows-chrome-relay${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`,
-    import.meta.url,
+  const relayEntry = fileURLToPath(
+    new URL(`./windows-chrome-relay${import.meta.url.endsWith(".ts") ? ".ts" : ".js"}`, import.meta.url),
   );
-  const words = [process.execPath, relayEntry.pathname, windowsChrome.chromePath].map(shellWord);
+  const words = [process.execPath, relayEntry, windowsChrome.chromePath].map(shellWord);
   await writeFile(launcherPath, `#!/bin/sh\nexec ${words.join(" ")} "$@"\n`);
   await chmod(launcherPath, 0o700);
   return launcherPath;

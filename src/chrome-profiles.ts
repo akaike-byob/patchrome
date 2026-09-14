@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { CommandError } from "./protocol.ts";
@@ -114,7 +114,15 @@ export async function copySiteLoginStorage(
   const origins = new Set<string>();
 
   // Windows Chrome keeps the key that encrypts cookies in Local State; macOS and Linux keep it in the keychain.
-  await cp(join(userDataDir, "Local State"), join(copyUserDataDir, "Local State")).catch(ignoreMissing);
+  // Only the key goes across: the profile list would make Chrome open the last used profile, not Default.
+  const localState = await readFile(join(userDataDir, "Local State"), "utf8").catch((err: unknown) => {
+    ignoreMissing(err);
+    return undefined;
+  });
+  if (localState !== undefined) {
+    const osCrypt = (JSON.parse(localState) as { os_crypt?: unknown }).os_crypt;
+    await writeFile(join(copyUserDataDir, "Local State"), JSON.stringify({ os_crypt: osCrypt }));
+  }
   // Windows Chrome files cookies under Network/ and locks them while it runs.
   for (const name of ["Cookies", "Cookies-journal", "Network/Cookies", "Network/Cookies-journal"]) {
     await cp(source(name), join(target, name)).catch((err: unknown) => {
@@ -122,7 +130,7 @@ export async function copySiteLoginStorage(
         throw new CommandError(
           "bad_args",
           `cannot read ${source(name)}: ${(err as NodeJS.ErrnoException).code}`,
-          "a running Windows Chrome locks its cookies; quit it, then import again",
+          "a running Windows Chrome locks its cookies; quit it, then import again. Elsewhere, check the file's permissions",
         );
       }
       ignoreMissing(err);
