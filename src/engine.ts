@@ -1,13 +1,47 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { chromium, type BrowserContext, type CDPSession, type Cookie, type Page, type Worker } from "patchright";
+import {
+  chromium,
+  type BrowserContext,
+  type CDPSession,
+  type Cookie,
+  type LaunchOptions,
+  type Page,
+  type Worker,
+} from "patchright";
+import { chromeUserDataDirFrom } from "./chrome-profiles.ts";
 import { keepFocusDuring } from "./focus.ts";
+import type { HostPlatform } from "./host-platform.ts";
 import { readOriginStorageInPage, type OriginStorage } from "./origin-storage.ts";
 import type { ProfileMode } from "./profile-mode.ts";
 import type { TabGroupColor, TabGroupSummary } from "./tab-groups.ts";
+import {
+  findWindowsChrome,
+  requireMirroredNetworking,
+  windowsChromeProfileDirFor,
+  windowsPathOf,
+  writeChromeLauncher,
+  type WindowsChrome,
+} from "./windows-chrome.ts";
+
+// Where Chrome runs. On WSL it is the Windows Chrome, reached through a relay; see windows-chrome.ts.
+export const chromeHosts = ["local", "windows"] as const;
+export type ChromeHost = (typeof chromeHosts)[number];
+
+export function chromeHostFor(platform: HostPlatform): ChromeHost {
+  switch (platform) {
+    case "wsl":
+      return "windows";
+    case "macos":
+    case "linux":
+    case "unsupported":
+      return "local";
+  }
+}
 
 export interface DebuggingEndpoint {
   httpUrl: string;
@@ -18,6 +52,12 @@ export interface DebuggingEndpoint {
 // stealth engine can replace Patchright without touching sessions or commands.
 export interface BrowserEngine {
   launch(chromeProfileDir: string, mode: ProfileMode): Promise<void>;
+  // The user data dir the launched Chrome runs on. On WSL it is a twin of chromeProfileDir on the Windows disk.
+  userDataDir(): string;
+  // The everyday Chrome's user data dir, for a state import that names none.
+  everydayChromeUserDataDir(): Promise<string>;
+  // An empty dir for a copy of an everyday Chrome profile, where this engine's Chrome can open it.
+  makeProfileCopyDir(): Promise<string>;
   // browserContextId picks an isolated context; undefined means the persistent profile.
   openBackgroundPage(browserContextId?: string): Promise<Page>;
   // Brings Chrome forward on purpose, for a person to use the tab.
@@ -51,23 +91,41 @@ const extensionWorkerWaitMs = 10_000;
 const tabGroupsExtensionDir = fileURLToPath(new URL("../extension/tab-groups", import.meta.url));
 
 export class PatchrightEngine implements BrowserEngine {
+  #chromeHost: ChromeHost;
+  #windowsChrome: Promise<{ found: WindowsChrome; launcherPath: string }> | undefined;
   #context: BrowserContext | undefined;
   #browserCdp: CDPSession | undefined;
   #closedListeners: Array<() => void> = [];
   #endpoint: DebuggingEndpoint | undefined;
   #tabGroupsExtensionId: string | undefined;
   #targetIdByPage = new WeakMap<Page, Promise<string>>();
+  #userDataDir: string | undefined;
   #isHeadless: boolean;
 
-  constructor({ isHeadless }: { isHeadless: boolean }) {
+  constructor({ chromeHost, isHeadless }: { chromeHost: ChromeHost; isHeadless: boolean }) {
+    this.#chromeHost = chromeHost;
     this.#isHeadless = isHeadless;
   }
 
   async launch(chromeProfileDir: string, mode: ProfileMode): Promise<void> {
+    switch (this.#chromeHost) {
+      case "local":
+        break;
+      case "windows":
+        await requireMirroredNetworking();
+        // Asking PowerShell where Chrome is takes most of a second, so the daemon asks once.
+        this.#windowsChrome = findWindowsChrome().then(async (found) => ({
+          found,
+          launcherPath: await writeChromeLauncher(chromeProfileDir, found),
+        }));
+        break;
+    }
+    const userDataDir = await this.#userDataDirFor(chromeProfileDir);
+    this.#userDataDir = userDataDir;
     // A port file left by an earlier Chrome would point at a dead port.
-    await rm(join(chromeProfileDir, "DevToolsActivePort"), { force: true });
-    const launched = chromium.launchPersistentContext(chromeProfileDir, {
-      channel: "chrome",
+    await rm(join(userDataDir, "DevToolsActivePort"), { force: true });
+    const launched = chromium.launchPersistentContext(userDataDir, {
+      ...(await this.#chromeExecutable()),
       headless: this.#isHeadless,
       viewport: null,
       // Without this Playwright passes --no-sandbox, which weakens Chrome and shows a warning bar.
@@ -82,14 +140,37 @@ export class PatchrightEngine implements BrowserEngine {
     if (!browser) throw new Error("persistent context exposed no browser for a browser-level CDP session");
     this.#browserCdp = await browser.newBrowserCDPSession();
     this.#context = context;
-    const { id } = await this.#browserCdp.send("Extensions.loadUnpacked", { path: tabGroupsExtensionDir });
+    const { id } = await this.#browserCdp.send("Extensions.loadUnpacked", {
+      path: await this.#pathForChrome(tabGroupsExtensionDir),
+    });
     this.#tabGroupsExtensionId = id;
     switch (mode) {
       case "stealth":
         break;
       case "debug":
-        this.#endpoint = await readDevToolsEndpoint(chromeProfileDir);
+        this.#endpoint = await readDevToolsEndpoint(userDataDir);
         break;
+    }
+  }
+
+  async everydayChromeUserDataDir(): Promise<string> {
+    switch (this.#chromeHost) {
+      case "local":
+        return chromeUserDataDirFrom({});
+      case "windows":
+        return join((await this.#requireWindowsChrome()).found.localAppDataDir, "Google", "Chrome", "User Data");
+    }
+  }
+
+  async makeProfileCopyDir(): Promise<string> {
+    switch (this.#chromeHost) {
+      case "local":
+        return mkdtemp(join(tmpdir(), "patchrome-login-copy-"));
+      case "windows": {
+        const copiesDir = join((await this.#requireWindowsChrome()).found.localAppDataDir, "patchrome", "login-copies");
+        await mkdir(copiesDir, { recursive: true });
+        return mkdtemp(join(copiesDir, "patchrome-login-copy-"));
+      }
     }
   }
 
@@ -163,7 +244,7 @@ export class PatchrightEngine implements BrowserEngine {
     origins: string[],
   ): Promise<{ cookies: Cookie[]; origins: OriginStorage[] }> {
     const reader = await chromium.launchPersistentContext(copyUserDataDir, {
-      channel: "chrome",
+      ...(await this.#chromeExecutable()),
       headless: true,
       // The everyday profile encrypts cookies with the OS credential store. Under Playwright's mock store Chrome
       // cannot decrypt them and deletes them from the copy.
@@ -212,6 +293,48 @@ export class PatchrightEngine implements BrowserEngine {
 
   async close(): Promise<void> {
     await this.#context?.close();
+  }
+
+  // The Windows Chrome keeps its profile on the Windows disk; the Linux profile dir holds only the launcher.
+  userDataDir(): string {
+    if (this.#userDataDir === undefined) throw new Error("engine not launched");
+    return this.#userDataDir;
+  }
+
+  async #userDataDirFor(chromeProfileDir: string): Promise<string> {
+    switch (this.#chromeHost) {
+      case "local":
+        return chromeProfileDir;
+      case "windows": {
+        const { found } = await this.#requireWindowsChrome();
+        const userDataDir = windowsChromeProfileDirFor(found, chromeProfileDir, process.env.WSL_DISTRO_NAME);
+        await mkdir(userDataDir, { recursive: true });
+        return userDataDir;
+      }
+    }
+  }
+
+  async #chromeExecutable(): Promise<Pick<LaunchOptions, "channel" | "executablePath">> {
+    switch (this.#chromeHost) {
+      case "local":
+        return { channel: "chrome" };
+      case "windows":
+        return { executablePath: (await this.#requireWindowsChrome()).launcherPath };
+    }
+  }
+
+  async #pathForChrome(path: string): Promise<string> {
+    switch (this.#chromeHost) {
+      case "local":
+        return path;
+      case "windows":
+        return windowsPathOf(path);
+    }
+  }
+
+  #requireWindowsChrome(): Promise<{ found: WindowsChrome; launcherPath: string }> {
+    if (!this.#windowsChrome) throw new Error("engine not launched");
+    return this.#windowsChrome;
   }
 
   // context.newPage() activates Chrome on macOS; a background CDP target does not. The unique about:blank

@@ -101,18 +101,33 @@ export function isGoogleHost(host: string): boolean {
 // what Chrome opens, so the everyday profile is never locked or written. Returns the site's origins that hold
 // localStorage or IndexedDB.
 export async function copySiteLoginStorage(
-  profileDir: string,
+  userDataDir: string,
+  profileFolder: string,
   site: string,
   copyUserDataDir: string,
 ): Promise<string[]> {
-  const source = (name: string) => join(profileDir, name);
+  const source = (name: string) => join(userDataDir, profileFolder, name);
   const target = join(copyUserDataDir, "Default");
-  await mkdir(target, { recursive: true });
+  await mkdir(join(target, "Network"), { recursive: true });
   // Chrome holds LOCK while it runs; the copy gets its own.
   const skipLock = (path: string) => basename(path) !== "LOCK";
   const origins = new Set<string>();
 
-  for (const name of ["Cookies", "Cookies-journal"]) await cp(source(name), join(target, name)).catch(ignoreMissing);
+  // Windows Chrome keeps the key that encrypts cookies in Local State; macOS and Linux keep it in the keychain.
+  await cp(join(userDataDir, "Local State"), join(copyUserDataDir, "Local State")).catch(ignoreMissing);
+  // Windows Chrome files cookies under Network/ and locks them while it runs.
+  for (const name of ["Cookies", "Cookies-journal", "Network/Cookies", "Network/Cookies-journal"]) {
+    await cp(source(name), join(target, name)).catch((err: unknown) => {
+      if (isUnreadable(err)) {
+        throw new CommandError(
+          "bad_args",
+          `cannot read ${source(name)}: ${(err as NodeJS.ErrnoException).code}`,
+          "a running Windows Chrome locks its cookies; quit it, then import again",
+        );
+      }
+      ignoreMissing(err);
+    });
+  }
   await cp(source("Local Storage"), join(target, "Local Storage"), { recursive: true, filter: skipLock }).catch(
     ignoreMissing,
   );
@@ -172,6 +187,11 @@ export async function siteStorageOrigins(profileDir: string, site: string, workD
     for (const { origin } of await bucketOrigins(quotaManager)) if (isSite(origin)) origins.add(origin);
   }
   return [...origins].toSorted();
+}
+
+function isUnreadable(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === "EACCES" || code === "EBUSY" || code === "EPERM";
 }
 
 function ignoreMissing(err: unknown): void {

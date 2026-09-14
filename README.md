@@ -30,11 +30,11 @@ patchrome text
   language over one connection, and `import { connect } from "patchrome"` does the same in Node.
 - **Stays out of your way.** Tabs open in the background, and agents work in them while you use your desktop.
   When the daemon first starts Chrome, macOS brings it forward for under a second, and patchrome hands
-  focus back to the app you were in. Linux leaves window activation to the desktop environment.
+  focus back to the app you were in. Linux and Windows leave window activation to the desktop.
 
 > [!NOTE]
 > Early software. The core loop, network capture, scraping, the debug profile and scripting work
-> (milestones M1 to M5 below). macOS and desktop Linux are supported.
+> (milestones M1 to M5 below). macOS, desktop Linux and WSL are supported.
 
 ## Why
 
@@ -63,10 +63,13 @@ errors, traces and raw CDP, and it lets chrome-devtools-mcp attach for Lighthous
 
 ## Requirements
 
-- macOS or desktop Linux. Windows and WSL are not supported yet.
+- macOS, desktop Linux, or WSL 2 on Windows 11 with mirrored networking (`networkingMode=mirrored` in
+  `.wslconfig`). On WSL patchrome drives the Windows Chrome, not a Chrome inside WSL. In NAT mode the
+  daemon refuses to start with `setup_required`; open an issue if you need NAT. Windows itself, outside
+  WSL, is not supported yet.
 - Node.js 24.2 or newer. A checkout runs the TypeScript sources through Node's type stripping. Node
   refuses to strip types under `node_modules`, so the package ships JavaScript compiled into `dist/`.
-- Google Chrome installed in the usual place
+- Google Chrome installed in the usual place: on Windows, for WSL
 - On Linux, a desktop session for the headed Chrome. A shell opened over SSH or from a tty has no
   `DISPLAY`: patchrome uses the machine's only X or Wayland display when there is one, and otherwise
   fails with `no_display` listing the displays it found, so you can run `DISPLAY=:20 patchrome session`
@@ -146,6 +149,15 @@ you, a terminal --+   (one per command)   (JSON lines)   (one per profile)     (
   over its launch pipe (`--enable-unsafe-extension-debugging`, no port) to do this; it injects nothing
   into pages and shows in `chrome://extensions`. Isolated sessions stay ungrouped, because Chrome keeps
   their browser context out of reach of extensions.
+- **WSL.** The daemon runs in WSL and Chrome runs on Windows, where you can see it. Playwright talks to
+  Chrome over two pipes on fds 3 and 4, and WSL interop passes only stdin, stdout and stderr to a
+  Windows program. So Playwright launches a relay, which runs Windows PowerShell with fd 3 as stdin
+  and fd 4 as stdout; PowerShell starts `chrome.exe` on anonymous pipes
+  (`--remote-debugging-io-pipes`) and copies bytes both ways. No port opens. The relay rewrites the two
+  requests that name files, the download folder and files set on an `<input type=file>`, from Linux
+  paths to Windows ones. Each profile's Chrome
+  files live on the Windows disk under `%LOCALAPPDATA%\patchrome\wsl\<profile>-<hash>`, next to a
+  Linux profile folder that holds the socket and sessions.
 
 ## Commands
 
@@ -226,6 +238,7 @@ closed set:
 | `unsupported_in_stealth` | the command needs a debug profile | rerun with `--profile debug` |
 | `copy_denied` | the person did not approve a login copy | approve the prompt, or run the command yourself |
 | `no_display` | Linux, and the shell has no X or Wayland display | `DISPLAY=:20 patchrome session`, with a display from the hint |
+| `setup_required` | this machine needs a change before patchrome can run Chrome, such as WSL in NAT networking mode | follow the hint |
 
 A stale ref fails at once. Plain Playwright would wait out the full timeout on it.
 
@@ -387,8 +400,9 @@ covers its subdomains.
 
 The import copies the profile's cookie jar, its localStorage, and the site's IndexedDB into a
 temporary folder, opens the copy in a headless Chrome whose network is routed to empty pages, and
-reads the site's cookies and storage. The copy is deleted afterwards, and your everyday Chrome can keep
-running. Cookies are encrypted with Chrome's OS credential-store key, so the reader Chrome runs
+reads the site's cookies and storage. The copy is deleted afterwards, and on macOS and Linux your
+everyday Chrome can keep running. On WSL the import reads the Windows Chrome, which locks its cookie
+database while it runs: quit Chrome first, or the import stops with `bad_args`. Cookies are encrypted with Chrome's OS credential-store key, so the reader Chrome runs
 without Playwright's mock credential store. Cookies go in next to the ones already there. localStorage items
 are added, and each imported IndexedDB database replaces the one with the same name.
 
@@ -455,7 +469,8 @@ npx chrome-devtools-mcp@latest --browserUrl http://127.0.0.1:62819
 
 A debug Chrome enables `Runtime` on every tab and listens on a random `127.0.0.1` port. Any site can
 detect both, and any local process can take over the browser through the port. Keep it to your own
-apps, and keep your logins in the stealth profile. A stealth profile refuses debug commands with
+apps, and keep your logins in the stealth profile. On WSL the port is on the Windows loopback, which
+WSL reaches through mirrored networking. A stealth profile refuses debug commands with
 `unsupported_in_stealth` and never turns instrumentation on.
 
 `console --follow` streams outside your session's command queue, so the same session can keep
@@ -509,7 +524,7 @@ terms. You are responsible for what your agents do with it.
   cookies, session folder pruning, an installable npm package.
 - **M5, scripting** (done): locators, `--inline` and `--out`, `network get --url`, `pipe`, session
   history with refs rewritten as locators, the Node library, and examples in sh, Python, Node and Go.
-- **Later:** WSL.
+- **WSL** (done): the Windows Chrome through a pipe relay, and `state import` from it.
 
 ## Development
 

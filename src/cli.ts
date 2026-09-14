@@ -1,7 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { chromeUserDataDirFrom } from "./chrome-profiles.ts";
 import { cliOptions } from "./cli-options.ts";
 import { DaemonConnection } from "./client.ts";
 import { zshCompletionScript } from "./completions.ts";
@@ -366,8 +365,9 @@ export function parseCli(
       }
       if (action === "import") {
         command = "state-import";
-        // The CLI's environment names the Chrome to read, not the long-running daemon's.
-        args = { site: need(1, "site"), from: values.from, chromeUserDataDir: chromeUserDataDirFrom(env) };
+        // The CLI's environment names the Chrome to read, not the long-running daemon's. Without one, the
+        // daemon reads the everyday Chrome of the platform its Chrome runs on.
+        args = { site: need(1, "site"), from: values.from, chromeUserDataDir: env.PATCHROME_CHROME_USER_DATA_DIR };
         break;
       }
       if (action !== "save" && action !== "load")

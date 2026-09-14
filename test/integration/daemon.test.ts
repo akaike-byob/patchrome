@@ -1,25 +1,36 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeHome, runCli, startFixtureServer, stopDaemon, type FixtureServer } from "./helpers.ts";
+import {
+  chromeHost,
+  daemonPidsFor,
+  makeHome,
+  runCli,
+  startFixtureServer,
+  stopDaemon,
+  type FixtureServer,
+} from "./helpers.ts";
 
-function daemonPidsFor(home: string): number[] {
-  const table = execFileSync("ps", ["-Ao", "pid=,command="], { encoding: "utf8" });
-  return table
-    .split("\n")
-    .filter((line) => line.includes("__daemon"))
-    .map((line) => Number(line.trim().split(/\s+/)[0]))
-    .filter((pid) => daemonUsesHome(pid, home));
-}
-
-function daemonUsesHome(pid: number, home: string): boolean {
-  try {
-    if (process.platform === "linux") return readFileSync(`/proc/${pid}/environ`, "utf8").includes(home);
-    return execFileSync("ps", ["-Eww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(home);
-  } catch {
-    return false;
+// Sets up a home whose Chrome launch fails before anything slow runs, so the failure comes before a starter
+// connects.
+function launchFailureIn(home: string): { env: NodeJS.ProcessEnv; code: string; message: RegExp } {
+  switch (chromeHost) {
+    case "local":
+      // The launch removes a stale DevToolsActivePort file first; a folder in its place fails that at once.
+      mkdirSync(join(home, "stealth", "chrome-profile", "DevToolsActivePort", "stuck"), { recursive: true });
+      return { env: {}, code: "bad_args", message: /is a directory/ };
+    case "windows": {
+      // The networking check runs before PowerShell.
+      const fakeBin = join(home, "bin");
+      mkdirSync(fakeBin);
+      writeFileSync(join(fakeBin, "wslinfo"), "#!/bin/sh\necho nat\n", { mode: 0o755 });
+      return {
+        env: { PATH: `${fakeBin}:${process.env.PATH}` },
+        code: "setup_required",
+        message: /WSL networking mode is nat/,
+      };
+    }
   }
 }
 
@@ -72,6 +83,19 @@ describe("daemon lifecycle", () => {
     expect(status.exitCode).toBe(1);
     expect(status.json.error?.code).toBe("daemon_unreachable");
     expect(existsSync(join(emptyHome, "stealth", "daemon.sock"))).toBe(false);
+  });
+
+  it("tells every starter why Chrome failed to launch, even when it fails before anyone connects", async () => {
+    const brokenHome = makeHome("broken-launch");
+    const { env, code, message } = launchFailureIn(brokenHome);
+    for (const attempt of [1, 2, 3]) {
+      const startedAtMs = Date.now();
+      const opened = await runCli(brokenHome, `broken-${attempt}`, ["open"], env);
+      // A starter that missed the answer would spawn daemon after daemon until its 30 s start timeout.
+      expect(Date.now() - startedAtMs).toBeLessThan(5_000);
+      expect(opened.json.error?.code, opened.stdout).toBe(code);
+      expect(opened.json.error?.message).toMatch(message);
+    }
   });
 
   it("exits after the idle timeout and removes its socket", async () => {
