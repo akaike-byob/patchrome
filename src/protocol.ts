@@ -47,6 +47,7 @@ export const commandNames = [
   "state-save",
   "state-load",
   "state-import",
+  "state-export",
   "console",
   "errors",
   "trace-start",

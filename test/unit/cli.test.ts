@@ -130,6 +130,15 @@ describe("parseCli for M2 commands", () => {
     expect(errorCodeOf(() => parse(["state", "import"]))).toBe("bad_args");
   });
 
+  it("maps state export to a site and an absolute file", () => {
+    expect(parse(["state", "export", "github.com", "gh.json"])).toMatchObject({
+      command: "state-export",
+      args: { site: "github.com", file: `${process.cwd()}/gh.json` },
+    });
+    expect(errorCodeOf(() => parse(["state", "export", "github.com"]))).toBe("bad_args");
+    expect(errorCodeOf(() => parse(["state", "export", "github.com", "gh.json", "extra"]))).toBe("bad_args");
+  });
+
   it("rejects unknown subcommands", () => {
     for (const argv of [
       ["network", "watch"],

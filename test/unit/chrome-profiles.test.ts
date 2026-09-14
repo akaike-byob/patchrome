@@ -1,14 +1,16 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   chromeUserDataDirFrom,
   hostBelongsToSite,
+  isGoogleHost,
   localStorageOrigins,
   originOfIndexedDbFolder,
   resolveChromeProfile,
   siteFromInput,
+  siteStorageOrigins,
 } from "../../src/chrome-profiles.ts";
 import { CommandError } from "../../src/protocol.ts";
 
@@ -71,6 +73,20 @@ describe("Chrome profiles", () => {
     expect(hostBelongsToSite("example.com", "app.example.com")).toBe(false);
   });
 
+  it("knows Google's hosts, across country domains, and nothing that only contains the word", () => {
+    for (const host of [
+      "google.com",
+      ".google.com",
+      "accounts.google.com",
+      "google.co.in",
+      "mail.google.com.au",
+      "google.de",
+    ])
+      expect(isGoogleHost(host), host).toBe(true);
+    for (const host of ["notgoogle.com", "google.example.com", "github.com", "googleusercontent.com"])
+      expect(isGoogleHost(host), host).toBe(false);
+  });
+
   it("names origins from IndexedDB folders and localStorage META keys", async () => {
     expect(originOfIndexedDbFolder("https_app.example.com_0.indexeddb.leveldb")).toBe("https://app.example.com");
     expect(originOfIndexedDbFolder("http_127.0.0.1_8080.indexeddb.leveldb")).toBe("http://127.0.0.1:8080");
@@ -91,5 +107,20 @@ describe("Chrome profiles", () => {
       "http://127.0.0.1:9000",
       "https://app.example.com",
     ]);
+  });
+
+  it("lists a live profile's site origins without copying the site's data", async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), "patchrome-profile-"));
+    const leveldbDir = join(profileDir, "Local Storage", "leveldb");
+    mkdirSync(leveldbDir, { recursive: true });
+    writeFileSync(join(leveldbDir, "000005.ldb"), "META:https://app.example.com\u0001META:https://other.test\u0001");
+    mkdirSync(join(profileDir, "IndexedDB", "https_id.example.com_0.indexeddb.leveldb"), { recursive: true });
+    mkdirSync(join(profileDir, "IndexedDB", "https_other.test_0.indexeddb.leveldb"), { recursive: true });
+    const workDir = mkdtempSync(join(tmpdir(), "patchrome-storage-origins-"));
+    expect(await siteStorageOrigins(profileDir, "example.com", workDir)).toEqual([
+      "https://app.example.com",
+      "https://id.example.com",
+    ]);
+    expect(readdirSync(workDir)).toEqual([]);
   });
 });

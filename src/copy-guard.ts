@@ -4,9 +4,10 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import { CommandError } from "./protocol.ts";
 
-// Commands that move logins between a patchrome profile and somewhere else. Loading data in waits for a
-// person; saving it out only leaves a record, so an agent that saves often does not raise prompts.
-export const copyKinds = ["state-import", "state-load", "state-save"] as const;
+// Commands that move logins between a patchrome profile and somewhere else. Loading data in, and exporting a
+// whole site's login to carry to another machine, wait for a person; saving what a session visited only leaves
+// a record, so an agent that saves often does not raise prompts.
+export const copyKinds = ["state-import", "state-load", "state-save", "state-export"] as const;
 export type CopyKind = (typeof copyKinds)[number];
 
 // What the person answered, or why nobody could be asked.
@@ -179,6 +180,8 @@ export function describeCopy(request: CopyRequest): string {
       return `load ${what} from ${request.source} into ${request.target}`;
     case "state-save":
       return `save ${what} from ${request.source} to ${request.target}`;
+    case "state-export":
+      return `export ${what} from ${request.source} to ${request.target}`;
   }
 }
 

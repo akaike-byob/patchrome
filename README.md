@@ -179,6 +179,7 @@ Global flags come before the command: `--json`, `--timeout-ms <n>` (default 3000
 | `cookies [--domain <domain>]` | cookies in the profile, or in an isolated session's own jar |
 | `state save <file>`, `state load <file>` | cookies and localStorage, in Playwright's storageState format |
 | `state import <site> [--from <chrome-profile>]` | one site's login from your everyday Chrome: cookies, localStorage, IndexedDB |
+| `state export <site> <file>` | one site's login from this profile to a file, to load on another machine |
 | `console [--level <level>] [--follow]` | debug profile: your tabs' console messages; `--follow` streams them |
 | `errors` | debug profile: uncaught page errors with stacks |
 | `trace start\|stop` | debug profile: Playwright trace zip, one session at a time |
@@ -391,9 +392,27 @@ running. Cookies are encrypted with Chrome's OS credential-store key, so the rea
 without Playwright's mock credential store. Cookies go in next to the ones already there. localStorage items
 are added, and each imported IndexedDB database replaces the one with the same name.
 
+### Moving a login to another machine
+
+```bash
+patchrome state export github.com github-login.json
+scp github-login.json build-box:
+ssh build-box patchrome state load github-login.json
+```
+
+`state export` writes one site's cookies, localStorage and IndexedDB from the profile, or from an isolated
+session's own jar, to a file. Moving the file is up to you. It holds live session tokens, so patchrome writes it
+with mode 0600; delete it once loaded. The site covers its subdomains. It reads storage from every origin
+Chrome keeps on disk for the site, every origin a session in the same cookie jar visited, and every cookie host.
+
+The file is Playwright's storageState with its `indexedDB` field, so `newContext({ storageState })` loads it,
+and `state load` takes a file Playwright wrote with `storageState({ indexedDB: true })`. Google logins are
+refused: Google binds them to the device. Sites that tie a session to an IP address or a browser fingerprint may
+sign the other machine out.
+
 ### Approving login copies
 
-`state import` and `state load` put logins into a profile, so they wait for a person. The daemon shows
+`state import`, `state load` and `state export` move whole logins, so they wait for a person. The daemon shows
 one prompt at a time and refuses the copy with `copy_denied` when the person cancels or a minute passes.
 
 - **macOS:** Touch ID, or the account password on a Mac without it, through LocalAuthentication.

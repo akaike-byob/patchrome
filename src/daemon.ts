@@ -205,6 +205,7 @@ export async function runDaemon(
     version,
     buildId,
     sessionsDir: paths.sessionsDir,
+    chromeProfileDir: paths.chromeProfileDir,
     profile,
     startedAtMs: Date.now(),
     requestShutdown: () => setImmediate(() => void shutdown("daemon stop")),

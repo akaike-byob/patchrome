@@ -94,6 +94,7 @@ first, `--frame <iframe-css>` looks inside that iframe.
 | `cookies [--domain <domain>] [--inline \| --out <file>]` | cookies with values |
 | `state save <file>`, `state load <file>` | cookies and localStorage, Playwright storageState format |
 | `state import <site> [--from <chrome-profile>]` | one site's login from the user's everyday Chrome |
+| `state export <site> <file>` | one site's login to a file the user carries to another machine |
 | `audit [--count <n>]` | recent login copies and who approved them |
 
 ## Scripting

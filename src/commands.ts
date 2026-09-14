@@ -1,15 +1,17 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Cookie, Locator, Page } from "patchright";
 import { inspectChallenges, waitForPersonToSolve } from "./challenges.ts";
 import {
   copySiteLoginStorage,
   describeChromeProfile,
   hostBelongsToSite,
+  isGoogleHost,
   listChromeProfiles,
   resolveChromeProfile,
   siteFromInput,
+  siteStorageOrigins,
 } from "./chrome-profiles.ts";
 import {
   parseWatchEventKinds,
@@ -26,7 +28,14 @@ import { extractRowsInPage, parseExtractSchema } from "./extract.ts";
 import { isNamePattern, nameGlobMatches, urlGlobMatches } from "./glob.ts";
 import { buildHar, type HarBody } from "./har.ts";
 import { bodyExtension, isTextual, type NetworkEntry, type NetworkLog } from "./network.ts";
-import { writeOriginStorageInPage, type OriginStorage } from "./origin-storage.ts";
+import {
+  fromStorageStateIndexedDb,
+  readOriginStorageInPage,
+  toStorageStateIndexedDb,
+  writeOriginStorageInPage,
+  type OriginStorage,
+  type StorageStateIndexedDb,
+} from "./origin-storage.ts";
 import { sessionFolderName } from "./paths.ts";
 import type { ProfileMode } from "./profile-mode.ts";
 import {
@@ -66,6 +75,8 @@ export interface CommandContext {
   version: string;
   buildId: string;
   sessionsDir: string;
+  // The Chrome user data dir the daemon launched, read by state export to find which origins hold storage.
+  chromeProfileDir: string;
   profile: string;
   startedAtMs: number;
   requestShutdown: () => void;
@@ -584,18 +595,114 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       });
       const browserContextId = ctx.registry.browserContextOf(session);
       await ctx.engine.addCookies(state.cookies, browserContextId);
-      for (const { origin, localStorage } of state.origins)
-        await writeOriginStorage(ctx, { origin, localStorage, indexedDB: [] }, timeoutMs, browserContextId);
+      for (const origin of state.origins) await writeOriginStorage(ctx, origin, timeoutMs, browserContextId);
       return {
         lines: [
           `loaded ${file}`,
           `cookies: ${state.cookies.length}`,
           `localStorage origins: ${state.origins.length}`,
+          ...state.origins
+            .filter((origin) => origin.indexedDB.length > 0)
+            .map((origin) => `${origin.origin}: IndexedDB ${origin.indexedDB.map((db) => db.name).join(" ")}`),
           browserContextId === undefined
             ? "the profile is shared, so every session now sees this state"
             : "loaded into this isolated session only",
         ],
         fields: { path: file, cookies: state.cookies.length, origins: state.origins.map((entry) => entry.origin) },
+      };
+    }
+    case "state-export": {
+      const site = siteFromInput(requiredString(args, "site"));
+      if (isGoogleHost(site))
+        throw new CommandError(
+          "bad_args",
+          `patchrome does not export Google logins`,
+          "Google binds its sessions to the device; sign in on the other machine with `patchrome login`",
+        );
+      const file = requiredString(args, "file");
+      const browserContextId = ctx.registry.browserContextOf(session);
+      const isExported = (host: string) => hostBelongsToSite(host, site) && !isGoogleHost(host);
+      const cookies = (await ctx.engine.cookies(undefined, browserContextId)).filter((cookie) =>
+        isExported(cookie.domain),
+      );
+      // Chrome writes storage to disk a few seconds late, and never for an isolated session, so the origins every
+      // session in the same cookie jar visited, and the cookie hosts, count too.
+      const candidates = new Set(
+        ctx.registry
+          .sessionNames()
+          .filter((name) => ctx.registry.browserContextOf(name) === browserContextId)
+          .flatMap((name) => ctx.registry.originsOf(name))
+          .filter((origin) => isExported(new URL(origin).hostname)),
+      );
+      for (const cookie of cookies) candidates.add(`https://${cookie.domain.replace(/^\./, "")}`);
+      if (browserContextId === undefined) {
+        const workDir = await mkdtemp(join(tmpdir(), "patchrome-storage-origins-"));
+        try {
+          const onDisk = await siteStorageOrigins(join(ctx.chromeProfileDir, "Default"), site, workDir);
+          for (const origin of onDisk) if (isExported(new URL(origin).hostname)) candidates.add(origin);
+        } finally {
+          await rm(workDir, { recursive: true, force: true });
+        }
+      }
+      const stored: OriginStorage[] = [];
+      for (const origin of [...candidates].toSorted()) {
+        const storage = await readOriginStorage(ctx, origin, timeoutMs, browserContextId);
+        if (storage.localStorage.length > 0 || storage.indexedDB.length > 0) stored.push(storage);
+      }
+      const source = profileCopyTarget(ctx, session);
+      if (cookies.length === 0 && stored.length === 0)
+        throw new CommandError(
+          "bad_args",
+          `${source} has no cookies or storage for ${site}`,
+          "sign in to the site first with `patchrome login`",
+        );
+      await ctx.copyGuard.requireApproval({
+        kind: "state-export",
+        session,
+        source,
+        target: `file ${file}`,
+        site,
+        cookies: cookies.length,
+        origins: stored.map((origin) => origin.origin),
+      });
+      const state = {
+        cookies,
+        origins: stored.map((origin) => ({
+          origin: origin.origin,
+          localStorage: origin.localStorage,
+          indexedDB: toStorageStateIndexedDb(origin.indexedDB),
+        })),
+      };
+      // The tokens go into a fresh 0600 file that then replaces the target, so they are never readable through an
+      // existing file's wider mode, and a symlink at the target is replaced rather than followed.
+      const partial = join(dirname(file), `.${basename(file)}.${process.pid}.partial`);
+      try {
+        await writeFile(partial, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+        await rename(partial, file);
+      } catch (err) {
+        await rm(partial, { force: true });
+        throw err;
+      }
+      return {
+        lines: [
+          `exported ${site} to ${file}`,
+          `cookies: ${cookies.length}`,
+          ...stored.map(
+            (origin) =>
+              `${origin.origin}: ${origin.localStorage.length} localStorage items, IndexedDB ${origin.indexedDB.length === 0 ? "none" : origin.indexedDB.map((db) => db.name).join(" ")}`,
+          ),
+          "the file holds live session tokens; move it yourself and load it with `patchrome state load`",
+        ],
+        fields: {
+          site,
+          path: file,
+          cookies: cookies.length,
+          origins: stored.map((origin) => ({
+            origin: origin.origin,
+            localStorageItems: origin.localStorage.length,
+            indexedDB: origin.indexedDB.map((db) => db.name),
+          })),
+        },
       };
     }
     case "state-import": {
@@ -1099,19 +1206,43 @@ function originOfUrl(url: string): string | undefined {
   }
 }
 
+const keyPathSchema = { keyPath: z.string().optional(), keyPathArray: z.array(z.string()).optional() };
+
+const indexedDbSchema: z.ZodType<StorageStateIndexedDb> = z.object({
+  name: z.string(),
+  version: z.number(),
+  stores: z.array(
+    z.object({
+      name: z.string(),
+      autoIncrement: z.boolean(),
+      ...keyPathSchema,
+      indexes: z.array(z.object({ name: z.string(), ...keyPathSchema, unique: z.boolean(), multiEntry: z.boolean() })),
+      records: z.array(
+        z.object({
+          key: z.unknown().optional(),
+          keyEncoded: z.unknown().optional(),
+          value: z.unknown().optional(),
+          valueEncoded: z.unknown().optional(),
+        }),
+      ),
+    }),
+  ),
+});
+
 const storageStateSchema = z.object({
   cookies: z.array(z.looseObject({ name: z.string(), value: z.string(), domain: z.string(), path: z.string() })),
   origins: z.array(
     z.object({
       origin: z.string().refine((origin) => originOfUrl(origin) === origin, "must be an http(s) origin"),
       localStorage: z.array(z.object({ name: z.string(), value: z.string() })),
+      indexedDB: z.array(indexedDbSchema).optional(),
     }),
   ),
 });
 
 interface StorageState {
   cookies: Cookie[];
-  origins: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }>;
+  origins: OriginStorage[];
 }
 
 function profileCopyTarget(ctx: CommandContext, session: string): string {
@@ -1120,19 +1251,24 @@ function profileCopyTarget(ctx: CommandContext, session: string): string {
     : `isolated session ${session} of patchrome profile ${ctx.profile}`;
 }
 
-// Accepts the file `state save` writes, which is also Playwright's storageState format.
+// Accepts the files `state save` and `state export` write, which are also Playwright's storageState format.
 export function parseStorageState(raw: string): StorageState {
   const state = parseJsonInput(
     storageStateSchema,
     raw,
     "state file",
-    "use a file written by `patchrome state save` or Playwright's storageState()",
+    "use a file written by `patchrome state save`, `patchrome state export` or Playwright's storageState()",
   );
-  return { cookies: state.cookies as unknown as Cookie[], origins: state.origins };
+  return {
+    cookies: state.cookies as unknown as Cookie[],
+    origins: state.origins.map(({ origin, localStorage, indexedDB = [] }) => ({
+      origin,
+      localStorage,
+      indexedDB: fromStorageStateIndexedDb(indexedDB),
+    })),
+  };
 }
 
-// Writes storage without contacting the site: a background tab loads the origin from a route that answers
-// with an empty page, writes, and closes. The tab is never adopted by a session.
 async function writeOriginStorage(
   ctx: CommandContext,
   storage: OriginStorage,
@@ -1140,18 +1276,44 @@ async function writeOriginStorage(
   browserContextId: string | undefined,
 ): Promise<void> {
   if (storage.localStorage.length === 0 && storage.indexedDB.length === 0) return;
+  await onOriginWithoutSite(ctx, storage.origin, timeoutMs, browserContextId, (page) =>
+    page.evaluate(
+      writeOriginStorageInPage,
+      { localStorage: storage.localStorage, indexedDB: storage.indexedDB },
+      undefined,
+      true,
+    ),
+  );
+}
+
+async function readOriginStorage(
+  ctx: CommandContext,
+  origin: string,
+  timeoutMs: number,
+  browserContextId: string | undefined,
+): Promise<OriginStorage> {
+  const storage = await onOriginWithoutSite(ctx, origin, timeoutMs, browserContextId, (page) =>
+    page.evaluate(readOriginStorageInPage, undefined, undefined, true),
+  );
+  return { origin, ...storage };
+}
+
+// Reaches an origin's storage without contacting the site: a background tab loads the origin from a route that
+// answers with an empty page, runs, and closes. The tab is never adopted by a session.
+async function onOriginWithoutSite<T>(
+  ctx: CommandContext,
+  origin: string,
+  timeoutMs: number,
+  browserContextId: string | undefined,
+  run: (page: Page) => Promise<T>,
+): Promise<T> {
   const page = await ctx.engine.openBackgroundPage(browserContextId);
   try {
     await page.route("**/*", (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>patchrome state</title>" }),
     );
-    await page.goto(`${storage.origin}/`, { waitUntil: "commit", timeout: timeoutMs });
-    await page.evaluate(
-      writeOriginStorageInPage,
-      { localStorage: storage.localStorage, indexedDB: storage.indexedDB },
-      undefined,
-      true,
-    );
+    await page.goto(`${origin}/`, { waitUntil: "commit", timeout: timeoutMs });
+    return await run(page);
   } finally {
     await page.close().catch(() => {});
   }

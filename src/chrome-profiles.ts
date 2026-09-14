@@ -92,6 +92,11 @@ export function hostBelongsToSite(host: string, site: string): boolean {
   return bare === site || bare.endsWith(`.${site}`);
 }
 
+// Google binds its sessions to the device they were made on, so patchrome never exports a Google login.
+export function isGoogleHost(host: string): boolean {
+  return /(^|\.)google\.(com|[a-z]{2}|com?\.[a-z]{2})$/.test(host.replace(/^\./, "").toLowerCase());
+}
+
 // Copies only what a login lives in: the cookie jar, localStorage, and the site's own IndexedDB. The copy is
 // what Chrome opens, so the everyday profile is never locked or written. Returns the site's origins that hold
 // localStorage or IndexedDB.
@@ -122,7 +127,7 @@ export async function copySiteLoginStorage(
     await cp(join(source("IndexedDB"), folder), join(target, "IndexedDB", folder), {
       recursive: true,
       filter: skipLock,
-    });
+    }).catch(ignoreMissing);
   }
 
   // Newer Chrome files IndexedDB under numbered storage buckets, listed in the QuotaManager database.
@@ -147,6 +152,28 @@ export async function copySiteLoginStorage(
   return [...origins].toSorted();
 }
 
+// Lists the site's origins that hold localStorage or IndexedDB in a profile a running Chrome may be writing,
+// copying nothing of the site's data. Only QuotaManager is copied, into workDir, because SQLite will not open
+// a database Chrome holds.
+export async function siteStorageOrigins(profileDir: string, site: string, workDir: string): Promise<string[]> {
+  const isSite = (origin: string) => hostBelongsToSite(new URL(origin).hostname, site);
+  const origins = new Set((await localStorageOrigins(join(profileDir, "Local Storage", "leveldb"))).filter(isSite));
+  for (const folder of await readdir(join(profileDir, "IndexedDB")).catch(() => [])) {
+    const origin = originOfIndexedDbFolder(folder);
+    if (origin !== undefined && isSite(origin)) origins.add(origin);
+  }
+  const quotaManager = join(workDir, "QuotaManager");
+  const hasQuotaManager = await cp(join(profileDir, "WebStorage", "QuotaManager"), quotaManager).then(
+    () => true,
+    () => false,
+  );
+  if (hasQuotaManager) {
+    await cp(join(profileDir, "WebStorage", "QuotaManager-journal"), `${quotaManager}-journal`).catch(ignoreMissing);
+    for (const { origin } of await bucketOrigins(quotaManager)) if (isSite(origin)) origins.add(origin);
+  }
+  return [...origins].toSorted();
+}
+
 function ignoreMissing(err: unknown): void {
   if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
 }
@@ -156,7 +183,10 @@ export async function localStorageOrigins(leveldbDir: string): Promise<string[]>
   const origins = new Set<string>();
   for (const file of await readdir(leveldbDir).catch(() => [])) {
     if (!/\.(log|ldb)$/.test(file)) continue;
-    const text = (await readFile(join(leveldbDir, file))).toString("latin1");
+    // A running Chrome can compact a table away between readdir and readFile; its keys live on in the new table.
+    const bytes = await readFile(join(leveldbDir, file)).catch((err: unknown) => ignoreMissing(err));
+    if (bytes === undefined) continue;
+    const text = bytes.toString("latin1");
     for (const match of text.matchAll(/META:(https?:\/\/[a-z0-9.-]+(?::\d+)?)/g)) {
       if (match[1] !== undefined) origins.add(match[1]);
     }
