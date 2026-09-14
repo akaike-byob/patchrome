@@ -72,3 +72,4 @@ Exit code 0 ok, 1 command error, 2 bad usage. `--json` errors carry a `code`:
 | `bad_args` | wrong usage, a JS error in `eval`, a bad schema or selector: read the message and hint |
 | `unsupported_in_stealth` | the command needs `--profile debug`, which is only for your own apps |
 | `copy_denied` | the user refused a login copy: tell them, do not retry, never copy cookies another way |
+| `no_display` | Linux with no desktop in this shell: rerun as the hint says, e.g. `DISPLAY=:20 patchrome session` |

@@ -67,6 +67,9 @@ errors, traces and raw CDP, and it lets chrome-devtools-mcp attach for Lighthous
 - Node.js 24.2 or newer. A checkout runs the TypeScript sources through Node's type stripping. Node
   refuses to strip types under `node_modules`, so the package ships JavaScript compiled into `dist/`.
 - Google Chrome installed in the usual place
+- On Linux, a desktop session for the headed Chrome. A shell opened over SSH or from a tty has no
+  `DISPLAY`: patchrome uses the machine's only X or Wayland display when there is one, and otherwise
+  fails with `no_display` listing the displays it found, so you can run `DISPLAY=:20 patchrome session`
 
 ## Install
 
@@ -221,6 +224,7 @@ closed set:
 | `bad_args` | wrong usage, or a JS error in `eval` | read the message |
 | `unsupported_in_stealth` | the command needs a debug profile | rerun with `--profile debug` |
 | `copy_denied` | the person did not approve a login copy | approve the prompt, or run the command yourself |
+| `no_display` | Linux, and the shell has no X or Wayland display | `DISPLAY=:20 patchrome session`, with a display from the hint |
 
 A stale ref fails at once. Plain Playwright would wait out the full timeout on it.
 
