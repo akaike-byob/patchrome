@@ -13,9 +13,15 @@ export interface Displays {
 export type DisplayChoice =
   // The environment already answers the question, or the platform does not ask it.
   | { kind: "inherit" }
-  // The only display on the machine, picked because there is nothing to choose between.
-  | { kind: "use"; variable: "DISPLAY" | "WAYLAND_DISPLAY"; value: string }
+  // The only display on the machine, picked because there is nothing to choose between. A Wayland desktop
+  // also runs Xwayland, so one socket of each is still one display and both variables are set.
+  | { kind: "use"; assignments: DisplayAssignment[] }
   | { kind: "missing"; error: CommandError };
+
+export interface DisplayAssignment {
+  variable: "DISPLAY" | "WAYLAND_DISPLAY";
+  value: string;
+}
 
 const x11SocketDir = "/tmp/.X11-unix";
 
@@ -39,17 +45,19 @@ export function resolveDisplay(platform: HostPlatform, env: NodeJS.ProcessEnv, d
   // WSLg sets DISPLAY for its own X server, and macOS has no display variable at all.
   if (platform !== "linux") return { kind: "inherit" };
   if (isSet(env.DISPLAY) || isSet(env.WAYLAND_DISPLAY)) return { kind: "inherit" };
-  const found = [
-    ...displays.wayland.map((value) => ({ variable: "WAYLAND_DISPLAY", value }) as const),
-    ...displays.x.map((value) => ({ variable: "DISPLAY", value }) as const),
-  ];
-  const only = found.length === 1 ? found[0] : undefined;
-  if (only !== undefined) return { kind: "use", ...only };
+  if (displays.x.length <= 1 && displays.wayland.length <= 1 && displays.x.length + displays.wayland.length > 0) {
+    const assignments: DisplayAssignment[] = [
+      ...displays.x.map((value) => ({ variable: "DISPLAY", value }) as const),
+      ...displays.wayland.map((value) => ({ variable: "WAYLAND_DISPLAY", value }) as const),
+    ];
+    return { kind: "use", assignments };
+  }
   return { kind: "missing", error: noDisplayError(displays) };
 }
 
 export function noDisplayError(displays: Displays): CommandError {
-  const names = [...displays.wayland, ...displays.x];
+  // X first: Chrome opens an X display by default, and Xwayland serves one on a Wayland desktop too.
+  const names = [...displays.x, ...displays.wayland];
   const hint =
     names.length === 0
       ? "start patchrome from your desktop session, or run it under `xvfb-run` for a headless machine"

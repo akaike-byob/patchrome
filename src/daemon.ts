@@ -149,6 +149,8 @@ export async function runDaemon(
   // The idle clock runs only while no request is in flight, so a slow Chrome launch or a long wait is never cut off.
   let inFlightRequests = 0;
   let isShuttingDown = false;
+  let isListening = true;
+  let hasLaunchFailed = false;
 
   const server = createServer((socket) => handleConnection(socket));
 
@@ -157,14 +159,22 @@ export async function runDaemon(
     isShuttingDown = true;
     log(`shutting down: ${reason}`);
     clearTimeout(idleTimer);
-    server.close();
-    await rm(paths.socketPath, { force: true });
+    await stopListening();
     // Closing Chrome closes every page, which would save empty sessions over the ones to restore.
     await saveSessionsNow();
     isSavingSessions = false;
     await engine.close().catch((err) => log(`engine close failed: ${String(err)}`));
     if (options.exitProcess) options.exitProcess(0);
     else process.exit(0);
+  };
+
+  // Open connections still get answers. The socket file goes only while this daemon owns it: once the listener
+  // is closed, a newer daemon may already be bound to the same path.
+  const stopListening = async () => {
+    if (!isListening) return;
+    isListening = false;
+    server.close();
+    await rm(paths.socketPath, { force: true });
   };
 
   const shutdownOnceIdle = async (reason: string) => {
@@ -218,9 +228,15 @@ export async function runDaemon(
   launched.catch((err: unknown) => {
     const error = toCommandError(err);
     log(`browser launch failed: ${error.code} ${error.message}${error.hint === undefined ? "" : ` (${error.hint})`}`);
+    hasLaunchFailed = true;
     // A failure the daemon sees before Chrome even starts beats the starter to the socket, and closing
     // now would answer it with a broken pipe instead of the reason.
-    setTimeout(() => void shutdownOnceIdle("launch failure"), launchFailureGraceMs);
+    // A retry with a fixed environment must reach a new daemon, so the listener closes once the grace ends,
+    // or sooner, once a request has carried the reason out.
+    setTimeout(() => {
+      void stopListening();
+      void shutdownOnceIdle("launch failure");
+    }, launchFailureGraceMs);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -243,9 +259,13 @@ export async function runDaemon(
       case "inherit":
         break;
       case "use":
-        process.env[choice.variable] = choice.value;
-        env[choice.variable] = choice.value;
-        log(`using ${choice.variable}=${choice.value}, the only display on this machine`);
+        for (const { variable, value } of choice.assignments) {
+          process.env[variable] = value;
+          env[variable] = value;
+        }
+        log(
+          `using ${choice.assignments.map(({ variable, value }) => `${variable}=${value}`).join(" ")}, the only display on this machine`,
+        );
         break;
       case "missing":
         throw choice.error;
@@ -269,6 +289,7 @@ export async function runDaemon(
       clearTimeout(idleTimer);
       void respond(socket, line, disconnected.signal).finally(() => {
         inFlightRequests -= 1;
+        if (hasLaunchFailed) void stopListening();
         resetIdleTimer();
       });
     });

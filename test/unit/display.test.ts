@@ -31,14 +31,29 @@ describe("displays", () => {
   it("picks the only display on the machine", () => {
     expect(resolveDisplay("linux", {}, { x: [":0"], wayland: [] })).toEqual({
       kind: "use",
-      variable: "DISPLAY",
-      value: ":0",
+      assignments: [{ variable: "DISPLAY", value: ":0" }],
     });
     expect(resolveDisplay("linux", { DISPLAY: "" }, { x: [], wayland: ["wayland-1"] })).toEqual({
       kind: "use",
-      variable: "WAYLAND_DISPLAY",
-      value: "wayland-1",
+      assignments: [{ variable: "WAYLAND_DISPLAY", value: "wayland-1" }],
     });
+  });
+
+  it("reads a Wayland desktop with its Xwayland socket as one display, and sets both", () => {
+    expect(resolveDisplay("linux", {}, { x: [":0"], wayland: ["wayland-0"] })).toEqual({
+      kind: "use",
+      assignments: [
+        { variable: "DISPLAY", value: ":0" },
+        { variable: "WAYLAND_DISPLAY", value: "wayland-0" },
+      ],
+    });
+  });
+
+  it("suggests an X display before a Wayland one", () => {
+    const choice = resolveDisplay("linux", {}, { x: [":20", ":99"], wayland: ["wayland-0"] });
+    if (choice.kind !== "missing") throw new Error(`expected a missing display, got ${choice.kind}`);
+    expect(choice.error.hint).toContain(":20, :99, wayland-0");
+    expect(choice.error.hint).toContain("`DISPLAY=:20 patchrome session`");
   });
 
   it("names every candidate when several displays could be the person's", () => {
