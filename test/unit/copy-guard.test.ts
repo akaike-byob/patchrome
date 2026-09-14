@@ -39,6 +39,7 @@ function guardWith(answers: Array<ApprovalAnswer | Error | Promise<ApprovalAnswe
   const asked: string[] = [];
   const notified: string[] = [];
   const prompts: HostPrompts = {
+    unpromptedReason: undefined,
     async askApproval(reason) {
       asked.push(reason);
       const next = answers.shift();
@@ -232,9 +233,25 @@ describe("approval settings and platforms", () => {
     expect(detectHostPlatform("win32", {}, () => "")).toBe("unsupported");
   });
 
-  it("refuses copies on a platform without a prompt", async () => {
-    expect(await hostPromptsFor("linux", () => {}, "/unused").askApproval("x", 1000)).toMatchObject({
-      answer: "unavailable",
+  it("lets a copy through on a platform without a prompt, recording and announcing why", async () => {
+    const auditLogPath = join(mkdtempSync(join(tmpdir(), "patchrome-audit-")), "copy-audit.jsonl");
+    const notified: string[] = [];
+    const guard = new CopyGuard({
+      prompts: {
+        ...hostPromptsFor("linux", () => {}, "/unused"),
+        async notify(title, body) {
+          notified.push(`${title} | ${body}`);
+        },
+      },
+      auditLogPath,
+      profile: "stealth",
+      log: () => {},
+    });
+    await guard.requireApproval(importRequest);
+    expect(notified[0]).toMatch(/^patchrome copy unprompted \| claude-1: import the github.com login/);
+    expect((await readAuditLog(auditLogPath)).entries[0]).toMatchObject({
+      decision: "unprompted",
+      detail: expect.stringContaining("no approval prompt on linux"),
     });
   });
 

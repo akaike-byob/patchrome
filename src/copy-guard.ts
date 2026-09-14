@@ -13,7 +13,8 @@ export type CopyKind = (typeof copyKinds)[number];
 export const approvalAnswers = ["approved", "denied", "timed_out", "unavailable"] as const;
 export type ApprovalAnswer = (typeof approvalAnswers)[number];
 
-export const copyDecisions = [...approvalAnswers, "not_asked"] as const;
+// A desktop with no prompt of its own records the copy and lets it through, rather than refusing every login.
+export const copyDecisions = [...approvalAnswers, "not_asked", "unprompted"] as const;
 export type CopyDecision = (typeof copyDecisions)[number];
 
 export const approvalTimeoutMs = 60_000;
@@ -29,6 +30,8 @@ export interface CopyRequest {
 }
 
 export interface HostPrompts {
+  // Why this desktop shows no prompt, which lets a copy through on the record alone. Undefined where it asks.
+  unpromptedReason: string | undefined;
   askApproval(reason: string, timeoutMs: number): Promise<{ answer: ApprovalAnswer; detail: string | undefined }>;
   notify(title: string, body: string): Promise<void>;
 }
@@ -71,6 +74,7 @@ export class CopyGuard {
     const { decision, detail } = await turn;
     switch (decision) {
       case "approved":
+      case "unprompted":
         return;
       case "denied":
       case "timed_out":
@@ -91,12 +95,14 @@ export class CopyGuard {
   }
 
   async #decide(request: CopyRequest): Promise<{ decision: CopyDecision; detail: string | undefined }> {
-    const { answer: decision, detail } = await this.#options.prompts
-      .askApproval(approvalReason(request), approvalTimeoutMs)
-      .catch((err: unknown) => ({
-        answer: "unavailable" as const,
-        detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
-      }));
+    const { unpromptedReason } = this.#options.prompts;
+    const { answer: decision, detail } =
+      unpromptedReason === undefined
+        ? await this.#options.prompts.askApproval(approvalReason(request), approvalTimeoutMs).catch((err: unknown) => ({
+            answer: "unavailable" as const,
+            detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
+          }))
+        : { answer: "unprompted" as const, detail: unpromptedReason };
     // Fails the command when the record cannot be written: an unrecorded copy is what the log exists to prevent.
     await this.#record(request, decision, detail);
     await this.#notify(request, decision);
@@ -139,6 +145,7 @@ export function shouldNotify(decision: CopyDecision): boolean {
     case "timed_out":
     case "unavailable":
     case "not_asked":
+    case "unprompted":
       return true;
   }
 }
