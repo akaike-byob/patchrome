@@ -92,6 +92,11 @@ export function hostBelongsToSite(host: string, site: string): boolean {
   return bare === site || bare.endsWith(`.${site}`);
 }
 
+// Google binds its sessions to the device they were made on, so patchrome never exports a Google login.
+export function isGoogleHost(host: string): boolean {
+  return /(^|\.)google\.(com|[a-z]{2}|com?\.[a-z]{2})$/.test(host.replace(/^\./, "").toLowerCase());
+}
+
 // Copies only what a login lives in: the cookie jar, localStorage, and the site's own IndexedDB. The copy is
 // what Chrome opens, so the everyday profile is never locked or written. Returns the site's origins that hold
 // localStorage or IndexedDB.

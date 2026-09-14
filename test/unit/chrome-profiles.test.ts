@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   chromeUserDataDirFrom,
   hostBelongsToSite,
+  isGoogleHost,
   localStorageOrigins,
   originOfIndexedDbFolder,
   resolveChromeProfile,
@@ -69,6 +70,20 @@ describe("Chrome profiles", () => {
     expect(hostBelongsToSite("app.example.com", "example.com")).toBe(true);
     expect(hostBelongsToSite("badexample.com", "example.com")).toBe(false);
     expect(hostBelongsToSite("example.com", "app.example.com")).toBe(false);
+  });
+
+  it("knows Google's hosts, across country domains, and nothing that only contains the word", () => {
+    for (const host of [
+      "google.com",
+      ".google.com",
+      "accounts.google.com",
+      "google.co.in",
+      "mail.google.com.au",
+      "google.de",
+    ])
+      expect(isGoogleHost(host), host).toBe(true);
+    for (const host of ["notgoogle.com", "google.example.com", "github.com", "googleusercontent.com"])
+      expect(isGoogleHost(host), host).toBe(false);
   });
 
   it("names origins from IndexedDB folders and localStorage META keys", async () => {

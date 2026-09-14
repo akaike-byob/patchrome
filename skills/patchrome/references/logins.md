@@ -27,9 +27,20 @@ A visible tab for a person. Tell the user a Chrome window is waiting, and pass `
 the site reaches after sign-in. Without `--until` it returns when the user closes the tab. It waits
 up to 10 minutes.
 
+## `state export`
+
+```bash
+patchrome state export github.com github-login.json
+```
+
+For a user who wants a login on another machine: it writes the site's cookies, localStorage and IndexedDB to
+a file, and on the other machine `state load <file>` puts them in. The user moves the file; do not copy it
+anywhere yourself, and delete it once it is loaded. Google logins are refused. Some sites sign the other
+machine out anyway; then a person runs `login` there.
+
 ## Approvals
 
-`state import` and `state load` wait up to a minute for the user to approve with Touch ID (Windows
+`state import`, `state load` and `state export` wait up to a minute for the user to approve with Touch ID (Windows
 Hello on WSL). Tell the user a prompt is coming before you run one. `copy_denied` means they refused:
 do not retry, and never copy cookies or profile files another way. On desktop Linux there is no such
 prompt, so the copy runs unasked and only shows the user a notification: say what you are copying and

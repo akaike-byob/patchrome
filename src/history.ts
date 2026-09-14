@@ -70,6 +70,8 @@ export function isReplayable(command: CommandName, args: Record<string, unknown>
       return true;
     case "challenge":
       return args.handoff === true;
+    // An export carries a login to another machine once; a replayed flow has no use for it.
+    case "state-export":
     case "tabs":
     case "snapshot":
     case "watch":

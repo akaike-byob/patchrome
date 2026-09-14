@@ -126,6 +126,20 @@ describe("CopyGuard", () => {
     expect(entry).not.toHaveProperty("site");
   });
 
+  it("describes an export to a file", async () => {
+    const { guard, auditLogPath, asked } = guardWith(["approved"]);
+    await guard.requireApproval({
+      ...importRequest,
+      kind: "state-export",
+      source: "patchrome profile stealth (shared by every session)",
+      target: "file /x/github.json",
+    });
+    expect(asked[0]).toBe(
+      "export the github.com login (3 cookies and storage for 1 origin) from patchrome profile stealth (shared by every session) to file /x/github.json. Asked by agent session claude-1.",
+    );
+    expect((await readAuditLog(auditLogPath)).entries[0]).toMatchObject({ kind: "state-export", decision: "approved" });
+  });
+
   it("shows one prompt at a time", async () => {
     let answerFirst: (answer: ApprovalAnswer) => void = () => {};
     const { guard, asked } = guardWith([
@@ -192,8 +206,9 @@ describe("audit log", () => {
 });
 
 describe("approval settings and platforms", () => {
-  it("gives more time to state load and import, which wait for the person", () => {
+  it("gives more time to state load, import and export, which wait for the person", () => {
     expect(parseCli(["state", "load", "a.json"], {}, () => "s")).toMatchObject({ timeoutMs: 120_000 });
+    expect(parseCli(["state", "export", "github.com", "a.json"], {}, () => "s")).toMatchObject({ timeoutMs: 120_000 });
     expect(parseCli(["state", "save", "a.json"], {}, () => "s")).toMatchObject({ timeoutMs: 30_000 });
   });
 
