@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { auditLine } from "../../src/copy-guard.ts";
-import { parseExitAddress } from "../../src/proxy-check.ts";
+import { isSameTimeZone, parseExitAddress } from "../../src/proxy-check.ts";
 import {
   parseProxyName,
   parseProxyServer,
@@ -211,6 +211,15 @@ describe("exit address and audit lines", () => {
       timeZone: undefined,
     });
     expect(parseExitAddress("203.0.113.9\n")).toEqual({ ip: "203.0.113.9", country: undefined, timeZone: undefined });
+  });
+
+  it("treats two names for one timezone as the same zone", () => {
+    // Windows Chrome reports Asia/Calcutta where ipinfo.io reports Asia/Kolkata.
+    expect(isSameTimeZone("Asia/Calcutta", "Asia/Kolkata")).toBe(true);
+    expect(isSameTimeZone("US/Eastern", "America/New_York")).toBe(true);
+    expect(isSameTimeZone("Asia/Kolkata", "Asia/Singapore")).toBe(false);
+    expect(isSameTimeZone("Not/AZone", "Not/AZone")).toBe(true);
+    expect(isSameTimeZone("Not/AZone", "Europe/Berlin")).toBe(false);
   });
 
   it("prints a proxy change beside login copies", () => {

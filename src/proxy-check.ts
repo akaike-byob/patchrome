@@ -85,6 +85,20 @@ export function parseExitAddress(body: string): ExitAddress {
   return { ip: text("ip", "query"), country: text("country", "countryCode"), timeZone: text("timezone", "timeZone") };
 }
 
+// IANA keeps old names as links: Asia/Calcutta is Asia/Kolkata, US/Eastern is America/New_York. Chrome and IP
+// echo services pick different names for one zone, so both go through the same ICU to one ID before comparing.
+export function isSameTimeZone(a: string, b: string): boolean {
+  return a === b || resolvedTimeZoneOf(a) === resolvedTimeZoneOf(b);
+}
+
+function resolvedTimeZoneOf(timeZone: string): string | undefined {
+  try {
+    return new Intl.DateTimeFormat("en", { timeZone }).resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
 // CONNECT through TLS to the proxy, the way Chrome reaches an HTTPS proxy.
 async function openTunnel(options: ExitCheckOptions, echo: URL, deadline: AbortSignal): Promise<TLSSocket> {
   const proxy = options.proxy;

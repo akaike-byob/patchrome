@@ -38,7 +38,7 @@ import {
 } from "./origin-storage.ts";
 import { sessionFolderName } from "./paths.ts";
 import type { ProfileMode } from "./profile-mode.ts";
-import { checkExitAddress, defaultIpEchoUrl, parseIpEchoUrl } from "./proxy-check.ts";
+import { checkExitAddress, defaultIpEchoUrl, isSameTimeZone, parseIpEchoUrl } from "./proxy-check.ts";
 import type { ProxyRouting } from "./proxy-routing.ts";
 import {
   builtInRoutes,
@@ -1257,7 +1257,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
         ...(ctx.trustedCertificates === undefined ? {} : { trustedCertificates: ctx.trustedCertificates }),
       });
       const chromeTimeZone = await ctx.engine.chromeTimeZone();
-      const isTimeZoneMismatch = exit.timeZone !== undefined && exit.timeZone !== chromeTimeZone;
+      const isTimeZoneMismatch = exit.timeZone !== undefined && !isSameTimeZone(exit.timeZone, chromeTimeZone);
       return {
         lines: [
           matched,
