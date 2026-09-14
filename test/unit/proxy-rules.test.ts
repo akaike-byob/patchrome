@@ -66,6 +66,7 @@ describe("proxy names, servers and patterns", () => {
       "*example.de",
       "",
       "*.*",
+      "*.",
     ])
       expect(() => parseRulePattern(bad), bad).toThrow("invalid rule pattern");
   });

@@ -980,15 +980,13 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       if (pattern !== undefined && all.length === 0)
         throw new CommandError("bad_args", `no session matches ${pattern}`, "run `patchrome sessions` to list them");
       return {
-        lines:
-          all.length === 0
-            ? ["no sessions"]
-            : all
-                .map(
-                  (entry) =>
-                    `${entry.session} ${entry.isAwaitingRestore ? "saved, reopens on its next command" : `${entry.tabCount} tabs${entry.isIsolated ? " isolated" : ""}`}${entry.label === undefined ? "" : ` label: ${entry.label}`}`,
-                )
-                .concat(ctx.proxy.hasRules() ? [proxySummary(ctx.proxy.config())] : []),
+        lines: (all.length === 0
+          ? ["no sessions"]
+          : all.map(
+              (entry) =>
+                `${entry.session} ${entry.isAwaitingRestore ? "saved, reopens on its next command" : `${entry.tabCount} tabs${entry.isIsolated ? " isolated" : ""}`}${entry.label === undefined ? "" : ` label: ${entry.label}`}`,
+            )
+        ).concat(ctx.proxy.hasRules() ? [proxySummary(ctx.proxy.config())] : []),
         fields: { sessions: all, proxy: proxySummary(ctx.proxy.config()) },
       };
     }

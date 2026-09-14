@@ -86,8 +86,10 @@ export function parseProxyServer(raw: string): string {
 
 // `example.de` is that host, `*.example.de` its subdomains only, `*` every host.
 export function parseRulePattern(raw: string): string {
-  const lowered = raw.trim().toLowerCase().replace(/\.$/, "");
-  if (lowered === "*") return lowered;
+  const trimmed = raw.trim().toLowerCase();
+  // Checked before the trailing dot goes, so `*.` is refused rather than read as every host.
+  if (trimmed === "*") return trimmed;
+  const lowered = trimmed.replace(/\.$/, "");
   const isSubdomains = lowered.startsWith("*.");
   const host = isSubdomains ? lowered.slice(2) : lowered;
   const normalized = hostnameOf(host);
