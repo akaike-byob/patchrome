@@ -9,6 +9,7 @@ import { detectHostPlatform } from "./host-platform.ts";
 import { hostPromptsFor } from "./host-prompts.ts";
 import { restoreSession, runCommand, type CommandContext } from "./commands.ts";
 import { PatchrightEngine, type BrowserEngine } from "./engine.ts";
+import { chromeLaunchError, listDisplays, resolveDisplay } from "./display.ts";
 import { PopupFocusReturn } from "./focus.ts";
 import { PageDiagnostics } from "./diagnostics.ts";
 import { SessionEvents } from "./events.ts";
@@ -34,6 +35,8 @@ import { parseJsonInput } from "./validate.ts";
 // can be set from outside: the `__daemon` entrypoint passes none, so a spawned daemon always asks a person.
 // Chrome takes the front before Playwright reports a popup, and on a loaded machine up to a few hundred ms after.
 const popupFocusGraceMs = 1_000;
+// How long a daemon whose Chrome never started keeps answering, so the command that started it hears why.
+const launchFailureGraceMs = 3_000;
 
 export interface DaemonOptions {
   prompts?: HostPrompts;
@@ -146,6 +149,8 @@ export async function runDaemon(
   // The idle clock runs only while no request is in flight, so a slow Chrome launch or a long wait is never cut off.
   let inFlightRequests = 0;
   let isShuttingDown = false;
+  let isListening = true;
+  let hasLaunchFailed = false;
 
   const server = createServer((socket) => handleConnection(socket));
 
@@ -154,14 +159,30 @@ export async function runDaemon(
     isShuttingDown = true;
     log(`shutting down: ${reason}`);
     clearTimeout(idleTimer);
-    server.close();
-    await rm(paths.socketPath, { force: true });
+    await stopListening();
     // Closing Chrome closes every page, which would save empty sessions over the ones to restore.
     await saveSessionsNow();
     isSavingSessions = false;
     await engine.close().catch((err) => log(`engine close failed: ${String(err)}`));
     if (options.exitProcess) options.exitProcess(0);
     else process.exit(0);
+  };
+
+  // Open connections still get answers. The socket file goes only while this daemon owns it: once the listener
+  // is closed, a newer daemon may already be bound to the same path.
+  const stopListening = async () => {
+    if (!isListening) return;
+    isListening = false;
+    server.close();
+    await rm(paths.socketPath, { force: true });
+  };
+
+  const shutdownOnceIdle = async (reason: string) => {
+    if (inFlightRequests > 0) {
+      setTimeout(() => void shutdownOnceIdle(reason), launchFailureGraceMs);
+      return;
+    }
+    await shutdown(reason);
   };
 
   const resetIdleTimer = () => {
@@ -203,11 +224,20 @@ export async function runDaemon(
   };
 
   // Listening before Chrome is up lets concurrent starters connect at once; requests wait on launch.
-  const launched = engine.launch(paths.chromeProfileDir, mode);
+  const launched = launchBrowser();
   engine.onClosed(() => void shutdown("browser closed"));
-  launched.catch((err) => {
-    log(`browser launch failed: ${String(err)}`);
-    void shutdown("launch failure");
+  launched.catch((err: unknown) => {
+    const error = toCommandError(err);
+    log(`browser launch failed: ${error.code} ${error.message}${error.hint === undefined ? "" : ` (${error.hint})`}`);
+    hasLaunchFailed = true;
+    // A failure the daemon sees before Chrome even starts beats the starter to the socket, and closing
+    // now would answer it with a broken pipe instead of the reason.
+    // A retry with a fixed environment must reach a new daemon, so the listener closes once the grace ends,
+    // or sooner, once a request has carried the reason out.
+    setTimeout(() => {
+      void stopListening();
+      void shutdownOnceIdle("launch failure");
+    }, launchFailureGraceMs);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -222,6 +252,34 @@ export async function runDaemon(
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => void shutdown(signal));
 
+  // Chrome inherits this process's environment, so a display picked here is the one it opens on.
+  async function launchBrowser(): Promise<void> {
+    const displays = listDisplays(env);
+    const choice = resolveDisplay(detectHostPlatform(), env, displays);
+    switch (choice.kind) {
+      case "inherit":
+        break;
+      case "use":
+        for (const { variable, value } of choice.assignments) {
+          process.env[variable] = value;
+          env[variable] = value;
+        }
+        log(
+          `using ${choice.assignments.map(({ variable, value }) => `${variable}=${value}`).join(" ")}, the only display on this machine`,
+        );
+        break;
+      case "missing":
+        throw choice.error;
+    }
+    try {
+      await engine.launch(paths.chromeProfileDir, mode);
+    } catch (err) {
+      // The raw text carries Chrome's own output, which the client never sees.
+      log(`chrome launch output: ${String(err)}`);
+      throw chromeLaunchError(err, displays);
+    }
+  }
+
   // A connection carries one request from the CLI, or many from `pipe` and the library.
   function handleConnection(socket: Socket) {
     const disconnected = new AbortController();
@@ -232,6 +290,7 @@ export async function runDaemon(
       clearTimeout(idleTimer);
       void respond(socket, line, disconnected.signal).finally(() => {
         inFlightRequests -= 1;
+        if (hasLaunchFailed) void stopListening();
         resetIdleTimer();
       });
     });

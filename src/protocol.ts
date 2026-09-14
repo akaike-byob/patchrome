@@ -12,6 +12,7 @@ export const errorCodes = [
   "daemon_outdated",
   "bad_args",
   "copy_denied",
+  "no_display",
 ] as const;
 export type ErrorCode = (typeof errorCodes)[number];
 
@@ -131,6 +132,7 @@ export function exitCodeFor(code: ErrorCode): number {
     case "daemon_unreachable":
     case "daemon_outdated":
     case "copy_denied":
+    case "no_display":
       return 1;
   }
 }
