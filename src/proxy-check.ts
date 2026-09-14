@@ -53,7 +53,9 @@ export async function checkExitAddress(options: ExitCheckOptions): Promise<ExitA
           ? {
               createConnection: () => tlsConnect({ socket, servername: serverNameOf(echo.hostname), ...caOf(options) }),
             }
-          : { createConnection: () => socket }),
+          : // readConnectStatus paused the tunnel, and the http client only listens for data, which stays
+            // buffered on a paused socket until something resumes it.
+            { createConnection: () => socket.resume() }),
     });
     outgoing.on("response", resolve);
     outgoing.on("error", reject);
@@ -107,7 +109,8 @@ async function openTunnel(options: ExitCheckOptions, echo: URL, deadline: AbortS
   const target = `${echo.hostname}:${echo.port || (echo.protocol === "https:" ? "443" : "80")}`;
   const socket = tlsConnect({
     host: server.hostname.replace(/^\[|\]$/g, ""),
-    port: Number(server.port),
+    // URL.port is empty for 443, the scheme's default.
+    port: Number(server.port === "" ? "443" : server.port),
     servername: serverNameOf(server.hostname),
     ...caOf(options),
   });
