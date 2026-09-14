@@ -75,7 +75,6 @@ export interface CommandContext {
   version: string;
   buildId: string;
   sessionsDir: string;
-  // The Chrome user data dir the daemon launched, read by state export to find which origins hold storage.
   profile: string;
   startedAtMs: number;
   requestShutdown: () => void;
@@ -706,7 +705,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
     }
     case "state-import": {
       const site = siteFromInput(requiredString(args, "site"));
-      const userDataDir = optionalString(args, "chromeUserDataDir") ?? (await ctx.engine.everydayChromeUserDataDir());
+      const userDataDir = await ctx.engine.importChromeUserDataDir(optionalString(args, "chromeUserDataDir"));
       const { profiles, lastUsedFolder } = await listChromeProfiles(userDataDir);
       const chromeProfile = resolveChromeProfile(profiles, optionalString(args, "from"), lastUsedFolder);
       const copyDir = await ctx.engine.makeProfileCopyDir();

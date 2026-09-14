@@ -15,6 +15,7 @@ import {
 } from "patchright";
 import { chromeUserDataDirFrom } from "./chrome-profiles.ts";
 import { keepFocusDuring } from "./focus.ts";
+import { CommandError } from "./protocol.ts";
 import type { HostPlatform } from "./host-platform.ts";
 import { readOriginStorageInPage, type OriginStorage } from "./origin-storage.ts";
 import type { ProfileMode } from "./profile-mode.ts";
@@ -54,8 +55,8 @@ export interface BrowserEngine {
   launch(chromeProfileDir: string, mode: ProfileMode): Promise<void>;
   // The user data dir the launched Chrome runs on. On WSL it is a twin of chromeProfileDir on the Windows disk.
   userDataDir(): string;
-  // The everyday Chrome's user data dir, for a state import that names none.
-  everydayChromeUserDataDir(): Promise<string>;
+  // The Chrome user data dir a state import reads: the one named, else the everyday Chrome's.
+  importChromeUserDataDir(named: string | undefined): Promise<string>;
   // An empty dir for a copy of an everyday Chrome profile, where this engine's Chrome can open it.
   makeProfileCopyDir(): Promise<string>;
   // browserContextId picks an isolated context; undefined means the persistent profile.
@@ -153,12 +154,25 @@ export class PatchrightEngine implements BrowserEngine {
     }
   }
 
-  async everydayChromeUserDataDir(): Promise<string> {
+  async importChromeUserDataDir(named: string | undefined): Promise<string> {
     switch (this.#chromeHost) {
       case "local":
-        return chromeUserDataDirFrom({});
-      case "windows":
-        return join((await this.#requireWindowsChrome()).found.localAppDataDir, "Google", "Chrome", "User Data");
+        return named ?? chromeUserDataDirFrom({});
+      case "windows": {
+        if (named === undefined) {
+          return join((await this.#requireWindowsChrome()).found.localAppDataDir, "Google", "Chrome", "User Data");
+        }
+        // Chrome encrypts cookies with a key only the same OS can read, so the Windows Chrome drops a Linux
+        // Chrome's cookies. wslpath maps a dir inside WSL to a \\wsl.localhost UNC path.
+        if ((await windowsPathOf(named)).startsWith("\\\\")) {
+          throw new CommandError(
+            "bad_args",
+            `${named} is inside WSL; on WSL patchrome imports from the Windows Chrome, which cannot decrypt a Linux Chrome's cookies`,
+            "point PATCHROME_CHROME_USER_DATA_DIR at a Windows Chrome user data dir under /mnt, or unset it",
+          );
+        }
+        return named;
+      }
     }
   }
 
