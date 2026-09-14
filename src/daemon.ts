@@ -15,7 +15,14 @@ import { PageDiagnostics } from "./diagnostics.ts";
 import { SessionEvents } from "./events.ts";
 import { NetworkLog } from "./network.ts";
 import { appendHistoryStep, historyFileName, isReplayable, replayStep } from "./history.ts";
-import { approvalBundlesDirFrom, auditLogPathFrom, idleMsFrom, profilePaths, sessionFolderName } from "./paths.ts";
+import {
+  approvalBundlesDirFrom,
+  auditLogPathFrom,
+  idleMsFrom,
+  isTestHeadlessFrom,
+  profilePaths,
+  sessionFolderName,
+} from "./paths.ts";
 import { fixProfileMode } from "./profile-mode.ts";
 import {
   CommandError,
@@ -77,7 +84,8 @@ export async function runDaemon(
     saveTimer = setTimeout(() => void saveSessionsNow(), 100);
   };
 
-  const engine: BrowserEngine = new PatchrightEngine();
+  const isHeadless = isTestHeadlessFrom(env);
+  const engine: BrowserEngine = new PatchrightEngine({ isHeadless });
   const events = new SessionEvents();
   const network = new NetworkLog((entry) =>
     events.publish(entry.session, { kind: "response", tabId: entry.tabId, entry, atMs: Date.now() }),

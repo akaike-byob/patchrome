@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { idleMsFrom, profilePaths, sessionFolderName } from "../../src/paths.ts";
+import { idleMsFrom, isTestHeadlessFrom, profilePaths, sessionFolderName } from "../../src/paths.ts";
 import { CommandError } from "../../src/protocol.ts";
 
 function errorCodeOf(action: () => unknown): string | undefined {
@@ -21,6 +21,20 @@ describe("sessionFolderName", () => {
 
   it("leaves ordinary names readable", () => {
     expect(sessionFolderName("claude-d1ea9f40-abb0")).toBe("claude-d1ea9f40-abb0");
+  });
+});
+
+describe("isTestHeadlessFrom", () => {
+  it("runs headed unless set to 1", () => {
+    expect(isTestHeadlessFrom({})).toBe(false);
+    expect(isTestHeadlessFrom({ PATCHROME_TEST_HEADLESS: "" })).toBe(false);
+    expect(isTestHeadlessFrom({ PATCHROME_TEST_HEADLESS: "1" })).toBe(true);
+  });
+
+  it("rejects any other value", () => {
+    for (const raw of ["0", "true", "yes"]) {
+      expect(errorCodeOf(() => isTestHeadlessFrom({ PATCHROME_TEST_HEADLESS: raw }))).toBe("bad_args");
+    }
   });
 });
 

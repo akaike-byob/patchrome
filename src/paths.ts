@@ -64,6 +64,15 @@ export function sessionFolderName(session: string): string {
   return session.replace(/[^A-Za-z0-9.-]/g, (char) => `_${char.codePointAt(0)?.toString(16)}_`);
 }
 
+// Local test runs set this so Chrome opens no window and never takes focus from the developer's apps.
+// Only "1" turns it on; the product and CI run headed.
+export function isTestHeadlessFrom(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.PATCHROME_TEST_HEADLESS;
+  if (raw === undefined || raw === "") return false;
+  if (raw !== "1") throw new CommandError("bad_args", `PATCHROME_TEST_HEADLESS must be 1 or unset, got ${raw}`);
+  return true;
+}
+
 export function idleMsFrom(env: NodeJS.ProcessEnv): number {
   const raw = env.PATCHROME_IDLE_MS;
   if (raw === undefined) return defaultIdleMs;
