@@ -192,6 +192,9 @@ Global flags come before the command: `--json`, `--timeout-ms <n>` (default 3000
 | `state save <file>`, `state load <file>` | cookies and localStorage, in Playwright's storageState format |
 | `state import <site> [--from <chrome-profile>]` | one site's login from your everyday Chrome: cookies, localStorage, IndexedDB |
 | `state export <site> <file>` | one site's login from this profile to a file, to load on another machine |
+| `proxy add <name> <https://host:port> [--username <user> --password-stdin\|--password-env <VAR>]` | add or replace an HTTPS proxy for the profile |
+| `proxy rule add <host\|*.domain\|*> <proxy\|direct\|block>`, `proxy rule remove\|list` | route hosts through a proxy, straight to the site, or nowhere; see [Proxies](#proxies) |
+| `proxy test <url>`, `proxy list`, `proxy remove <name>`, `proxy clear` | check a route and its exit IP; list, remove or clear proxies |
 | `console [--level <level>] [--follow]` | debug profile: your tabs' console messages; `--follow` streams them |
 | `errors` | debug profile: uncaught page errors with stacks |
 | `trace start\|stop` | debug profile: Playwright trace zip, one session at a time |
@@ -199,7 +202,7 @@ Global flags come before the command: `--json`, `--timeout-ms <n>` (default 3000
 | `cdp help [Domain\|Domain.method]` | debug profile: CDP reference read from the running Chrome's `/json/protocol` |
 | `devtools-url` | debug profile: the `127.0.0.1` endpoint for chrome-devtools-mcp |
 | `profile create <name> --mode stealth\|debug` | fix a profile's mode before first use |
-| `audit [--count <n>]` | recent login copies into and out of profiles, with who approved them |
+| `audit [--count <n>]` | recent login copies into and out of profiles, with who approved them, and proxy changes |
 | `session`, `session close` | your session, its label, tab group and tabs; close them all |
 | `session label <text>` | say what the session is doing; shown in its Chrome tab group title |
 | `session history [--format sh\|jsonl] [--out <file>]` | the session's working commands as a replayable script; `session history clear` empties it |
@@ -239,6 +242,8 @@ closed set:
 | `copy_denied` | the person did not approve a login copy | approve the prompt, or run the command yourself |
 | `no_display` | Linux, and the shell has no X or Wayland display | `DISPLAY=:20 patchrome session`, with a display from the hint |
 | `setup_required` | this machine needs a change before patchrome can run Chrome, such as WSL in NAT networking mode | follow the hint |
+| `proxy_auth_failed` | a proxy refused its stored password, or asked for one and none is stored | fix the password with `proxy add` |
+| `proxy_unreachable` | a proxy is down, has an invalid certificate, or refused the site | `patchrome proxy test <url>` |
 
 A stale ref fails at once. Plain Playwright would wait out the full timeout on it.
 
@@ -452,6 +457,49 @@ Limits:
 - IndexedDB values that are Blobs, Maps or Sets are not copied; Dates and binary arrays are.
 - `PATCHROME_CHROME_USER_DATA_DIR` points at another Chrome, such as Chrome Beta.
 
+### Proxies
+
+A profile can send chosen sites through HTTPS proxies, each with its own username and password:
+
+```bash
+printf %s "$DE_PROXY_PASS" | patchrome proxy add de https://gw.example.net:8000 --username alice --password-stdin
+patchrome proxy rule add '*.example.de' de
+patchrome proxy rule add '*' corp
+patchrome proxy rule add intranet.corp direct
+patchrome proxy test https://shop.example.de/
+```
+
+A rule matches a host exactly, its subdomains (`*.example.de`), or every host (`*`). The exact host wins, then
+the longest subdomain pattern, then `*`; with no `*` rule, other hosts go direct. The route is `direct`, `block`,
+or a proxy name. Rules apply to every session in the profile and take effect on the next request, without
+restarting Chrome.
+
+How it works: a bundled extension sets a PAC script through `chrome.proxy` and answers the proxies' password
+prompts through `webRequest.onAuthRequired`, so the persistent profile, its logins and its fingerprint stay as
+they are. The PAC script is mandatory, so a script that fails stops requests instead of sending them direct. While
+rules exist, WebRTC may not use UDP outside the proxy, so a page cannot learn this machine's address over STUN.
+
+- Only `https://` proxies are accepted. Chrome then sends the password and every CONNECT host name inside TLS
+  to the proxy. Chrome cannot authenticate to a SOCKS5 proxy at all.
+- Proxies and rules live in `~/.cache/patchrome/<profile>/proxies.json`. Passwords live in
+  `proxy-secrets.json` next to it, mode 0600, and reach Chrome only in memory. `--password-stdin` and
+  `--password-env <VAR>` keep them out of `ps` and shell history.
+- Every change is appended to the audit log that `patchrome audit` reads. Changes need no approval.
+- `proxy test <url>` names the rule and route, checks the proxy's password from Node, and asks an IP echo
+  service through the route for the exit address, country and timezone: `https://ipinfo.io/json`, or
+  `PATCHROME_IP_ECHO_URL`. It warns when Chrome's timezone differs from the exit address's.
+- A rule change that moves a site with cookies to a new route prints a warning, since sites may challenge a
+  login that moves to another address.
+
+Limits:
+
+- Isolated sessions cannot follow rules: Chrome keeps extensions out of CDP browser contexts, so their tabs
+  would reach sites directly. `open --isolated` fails while rules exist, and a rule cannot be added while an
+  isolated session is open.
+- A PAC script sees only the host of an https URL, so rules cannot match paths or ports.
+- `localhost` and `127.0.0.1` always go direct. Chrome's own background requests, such as updates, are not
+  routed.
+
 ### Debug profile
 
 A profile's mode is fixed when it is created. `--profile debug` is a debug profile unless you create
@@ -525,6 +573,7 @@ terms. You are responsible for what your agents do with it.
 - **M5, scripting** (done): locators, `--inline` and `--out`, `network get --url`, `pipe`, session
   history with refs rewritten as locators, the Node library, and examples in sh, Python, Node and Go.
 - **WSL** (done): the Windows Chrome through a pipe relay, and `state import` from it.
+- **Proxies** (done): HTTPS proxies with passwords, host rules through a bundled extension, `proxy test`.
 
 ## Development
 

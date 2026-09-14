@@ -92,7 +92,9 @@ describe("CopyGuard", () => {
     const { guard, auditLogPath, notified } = guardWith(["denied"]);
     expect(await codeOf(guard.requireApproval(importRequest))).toBe("copy_denied");
     expect(notified).toEqual([]);
-    expect((await readAuditLog(auditLogPath)).entries.map((entry) => entry.decision)).toEqual(["denied"]);
+    expect(
+      (await readAuditLog(auditLogPath)).entries.map((entry) => ("decision" in entry ? entry.decision : entry.kind)),
+    ).toEqual(["denied"]);
   });
 
   it("notifies when nobody answered, or the prompt could not be shown", async () => {
@@ -102,7 +104,7 @@ describe("CopyGuard", () => {
     expect(notified).toHaveLength(2);
     expect(notified[0]).toMatch(/^patchrome copy timed out \| claude-1: import the github.com login/);
     const { entries } = await readAuditLog(auditLogPath);
-    expect(entries.map((entry) => [entry.decision, entry.detail])).toEqual([
+    expect(entries.map((entry) => ("decision" in entry ? [entry.decision, entry.detail] : [entry.kind]))).toEqual([
       ["timed_out", undefined],
       ["unavailable", "osascript: command not found"],
     ]);

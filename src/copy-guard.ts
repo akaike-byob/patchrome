@@ -43,7 +43,17 @@ export type HostPrompts =
       notify(title: string, body: string): Promise<void>;
     };
 
-const auditEntrySchema = z.object({
+// Proxy changes share the log: they decide where a logged-in profile's traffic goes, and nobody approves them.
+export const proxyChangeKinds = [
+  "proxy-add",
+  "proxy-remove",
+  "proxy-rule-add",
+  "proxy-rule-remove",
+  "proxy-clear",
+] as const;
+export type ProxyChangeKind = (typeof proxyChangeKinds)[number];
+
+const copyAuditEntrySchema = z.object({
   atUtc: z.string(),
   profile: z.string(),
   kind: z.enum(copyKinds),
@@ -56,6 +66,18 @@ const auditEntrySchema = z.object({
   decision: z.enum(copyDecisions),
   detail: z.string().optional(),
 });
+export type CopyAuditEntry = z.infer<typeof copyAuditEntrySchema>;
+
+const proxyAuditEntrySchema = z.object({
+  atUtc: z.string(),
+  profile: z.string(),
+  kind: z.enum(proxyChangeKinds),
+  session: z.string(),
+  change: z.string(),
+});
+export type ProxyAuditEntry = z.infer<typeof proxyAuditEntrySchema>;
+
+const auditEntrySchema = z.union([copyAuditEntrySchema, proxyAuditEntrySchema]);
 export type AuditEntry = z.infer<typeof auditEntrySchema>;
 
 export interface CopyGuardOptions {
@@ -127,7 +149,7 @@ export class CopyGuard {
   }
 
   async #record(request: CopyRequest, decision: CopyDecision, detail: string | undefined): Promise<void> {
-    const entry: AuditEntry = {
+    const entry: CopyAuditEntry = {
       atUtc: new Date((this.#options.nowMs ?? Date.now)()).toISOString(),
       profile: this.#options.profile,
       kind: request.kind,
@@ -140,8 +162,7 @@ export class CopyGuard {
       decision,
       ...(detail === undefined ? {} : { detail }),
     };
-    await mkdir(dirname(this.#options.auditLogPath), { recursive: true });
-    await appendFile(this.#options.auditLogPath, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
+    await appendAuditEntry(this.#options.auditLogPath, entry);
     this.#options.log(`copy ${decision}: ${describeCopy(request)} for ${request.session}`);
   }
 
@@ -152,6 +173,11 @@ export class CopyGuard {
       .notify(`patchrome copy ${decision.replace("_", " ")}`, `${request.session}: ${describeCopy(request)}`)
       .catch((err: unknown) => this.#options.log(`copy notification failed: ${String(err).split("\n")[0]}`));
   }
+}
+
+export async function appendAuditEntry(path: string, entry: AuditEntry): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
 }
 
 export function shouldNotify(decision: CopyDecision): boolean {
@@ -233,5 +259,6 @@ export async function readAuditLog(path: string): Promise<{ entries: AuditEntry[
 }
 
 export function auditLine(entry: AuditEntry): string {
+  if ("change" in entry) return `${entry.atUtc} proxy ${entry.session}: ${entry.change}`;
   return `${entry.atUtc} ${entry.decision} ${entry.session}: ${describeCopy({ ...entry, site: entry.site })}${entry.detail === undefined ? "" : ` (${entry.detail})`}`;
 }

@@ -9,7 +9,7 @@ _patchrome_profile_args() {
 
 _patchrome_sessions() {
   local -a names
-  names=(\${(f)"$(patchrome $(_patchrome_profile_args) sessions 2>/dev/null | awk '$0 != "no sessions" {print $1}')"})
+  names=(\${(f)"$(patchrome $(_patchrome_profile_args) sessions 2>/dev/null | awk '$0 != "no sessions" && $1 != "proxy:" {print $1}')"})
   (( \${#names} )) && _describe -t sessions 'session' names
 }
 
@@ -45,6 +45,7 @@ _patchrome() {
     'login:sign in by hand in a visible tab'
     'cookies:list cookies'
     'state:save, load, import or export login state'
+    'proxy:route hosts through https proxies'
     'console:console messages (debug profile)'
     'errors:page errors (debug profile)'
     'trace:record a Playwright trace (debug profile)'
@@ -94,6 +95,12 @@ _patchrome() {
         network) (( CURRENT == 2 )) && _values 'action' list get har ;;
         route) (( CURRENT == 2 )) && _values 'action' block mock list clear ;;
         state) (( CURRENT == 2 )) && _values 'action' save load import export ;;
+        proxy)
+          if (( CURRENT == 2 )); then _values 'action' add remove list rule test clear
+          elif [[ $words[2] == rule ]] && (( CURRENT == 3 )); then _values 'action' add remove list
+          elif [[ $words[2] == add ]]; then _arguments '--username[proxy username]:user:' '--password-stdin[read the password from stdin]' '--password-env[read the password from this variable]:variable:_parameters'
+          fi
+          ;;
         trace) (( CURRENT == 2 )) && _values 'action' start stop ;;
         daemon) (( CURRENT == 2 )) && _values 'action' status stop logs ;;
         cdp) (( CURRENT == 2 )) && _values 'action' help ;;

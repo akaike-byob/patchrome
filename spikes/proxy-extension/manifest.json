@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "patchrome proxy spike",
+  "version": "0.0.1",
+  "permissions": ["proxy", "privacy", "webRequest", "webRequestAuthProvider"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "service-worker.js" }
+}

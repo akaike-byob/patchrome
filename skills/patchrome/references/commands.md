@@ -9,6 +9,7 @@
 - Waiting and watching
 - Network
 - Logins and state
+- Proxies
 - Scripting
 - Debug profile
 - Sessions, profiles and the daemon
@@ -95,7 +96,20 @@ first, `--frame <iframe-css>` looks inside that iframe.
 | `state save <file>`, `state load <file>` | cookies and localStorage, Playwright storageState format |
 | `state import <site> [--from <chrome-profile>]` | one site's login from the user's everyday Chrome |
 | `state export <site> <file>` | one site's login to a file the user carries to another machine |
-| `audit [--count <n>]` | recent login copies and who approved them |
+| `audit [--count <n>]` | recent login copies with who approved them, and proxy changes |
+
+## Proxies
+
+Rules apply to every session in the profile; change them only when the user asks.
+
+| Command | Does |
+|---|---|
+| `proxy add <name> <https://host:port> [--username <user> --password-stdin \| --password-env <VAR>]` | add or replace an HTTPS proxy; the password never goes in the words |
+| `proxy remove <name>`, `proxy list` | a proxy no rule uses; every proxy with its rules |
+| `proxy rule add <host\|*.domain\|*> <proxy\|direct\|block>` | route matching hosts; exact host, then longest `*.domain`, then `*` |
+| `proxy rule remove <pattern>`, `proxy rule list` | rules in the order they are checked |
+| `proxy test <url>` | the rule and route for a URL, and the exit IP from an echo service |
+| `proxy clear` | every proxy and rule |
 
 ## Scripting
 
@@ -124,7 +138,7 @@ first, `--frame <iframe-css>` looks inside that iframe.
 | `session label <text>` | what you are doing, shown on your Chrome tab group |
 | `sessions [pattern]`, `session close <session\|pattern>` | list sessions; close others by name or glob (`'work-*'`), only when the user asks |
 | `profile create <name> --mode stealth\|debug` | a profile's mode is fixed once made |
-| `daemon status\|stop\|logs` | `stop` closes Chrome for every session |
+| `daemon status\|stop\|logs` | `stop` closes Chrome for every session; `status` shows the proxy rule count |
 | `completions zsh` | zsh completion script, for people |
 
 If the daemon restarts, your tabs come back on your next command under the same ids, reloaded at

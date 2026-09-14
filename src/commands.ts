@@ -38,6 +38,22 @@ import {
 } from "./origin-storage.ts";
 import { sessionFolderName } from "./paths.ts";
 import type { ProfileMode } from "./profile-mode.ts";
+import { checkExitAddress, defaultIpEchoUrl, parseIpEchoUrl } from "./proxy-check.ts";
+import type { ProxyRouting } from "./proxy-routing.ts";
+import {
+  builtInRoutes,
+  isBuiltInRoute,
+  parseProxyName,
+  parseProxyServer,
+  parseRulePattern,
+  proxySummary,
+  routeLabel,
+  routeOf,
+  ruleForHost,
+  rulesInMatchOrder,
+  type ProxyConfig,
+  type ProxyRule,
+} from "./proxy-rules.ts";
 import {
   CommandError,
   type CommandArgs,
@@ -84,6 +100,9 @@ export interface CommandContext {
   savedSessionNames: () => string[];
   forgetSavedSession: (session: string) => void;
   copyGuard: CopyGuard;
+  proxy: ProxyRouting;
+  // Certificates Node trusts for `proxy test` in place of the system's; set only by tests in the daemon's process.
+  trustedCertificates: string[] | undefined;
 }
 
 export interface CommandCall {
@@ -106,7 +125,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const url = optionalString(args, "url");
       if (url !== undefined) {
         try {
-          await navigate(page, url, waitStateArg(args), timeoutMs);
+          await navigate(page, url, waitStateArg(args), timeoutMs, ctx.proxy);
         } catch (err) {
           // A failed open leaves no blank tab behind, so retries do not pile up orphans.
           await page.close().catch(() => {});
@@ -138,7 +157,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
     }
     case "goto": {
       const tab = ctx.registry.currentTab(session);
-      await navigate(tab.page, requiredString(args, "url"), waitStateArg(args), timeoutMs);
+      await navigate(tab.page, requiredString(args, "url"), waitStateArg(args), timeoutMs, ctx.proxy);
       return describeTab(tab, `navigated ${tab.id}`);
     }
     case "snapshot": {
@@ -468,7 +487,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       const tab = ctx.registry.adoptPage(session, page, true);
       await ctx.consoleCaptureReady(tab);
       try {
-        await navigate(page, url, "domcontentloaded", timeoutMs);
+        await navigate(page, url, "domcontentloaded", timeoutMs, ctx.proxy);
       } catch (err) {
         await page.close().catch(() => {});
         throw err;
@@ -964,11 +983,13 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
         lines:
           all.length === 0
             ? ["no sessions"]
-            : all.map(
-                (entry) =>
-                  `${entry.session} ${entry.isAwaitingRestore ? "saved, reopens on its next command" : `${entry.tabCount} tabs${entry.isIsolated ? " isolated" : ""}`}${entry.label === undefined ? "" : ` label: ${entry.label}`}`,
-              ),
-        fields: { sessions: all },
+            : all
+                .map(
+                  (entry) =>
+                    `${entry.session} ${entry.isAwaitingRestore ? "saved, reopens on its next command" : `${entry.tabCount} tabs${entry.isIsolated ? " isolated" : ""}`}${entry.label === undefined ? "" : ` label: ${entry.label}`}`,
+                )
+                .concat(ctx.proxy.hasRules() ? [proxySummary(ctx.proxy.config())] : []),
+        fields: { sessions: all, proxy: proxySummary(ctx.proxy.config()) },
       };
     }
     case "session-label": {
@@ -1021,6 +1042,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           `uptime: ${Math.round((Date.now() - ctx.startedAtMs) / 1000)} s`,
           `sessions: ${sessions.length}`,
           `tabs: ${tabCount}`,
+          proxySummary(ctx.proxy.config()),
         ],
         fields: {
           profile: ctx.profile,
@@ -1031,6 +1053,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           startedAtMs: ctx.startedAtMs,
           sessions,
           tabCount,
+          proxy: proxySummary(ctx.proxy.config()),
         },
       };
     }
@@ -1038,7 +1061,311 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       ctx.requestShutdown();
       return { lines: ["daemon stopping"], fields: { pid: process.pid } };
     }
+    case "proxy-add": {
+      const name = parseProxyName(requiredString(args, "name"));
+      const server = parseProxyServer(requiredString(args, "server"));
+      const username = optionalString(args, "username");
+      const password = optionalString(args, "password");
+      if (username !== undefined && password === undefined)
+        throw new CommandError(
+          "bad_args",
+          `proxy ${name} has --username but no password`,
+          "pass the password with --password-stdin or --password-env <VAR>",
+        );
+      if (username === undefined && password !== undefined)
+        throw new CommandError("bad_args", `proxy ${name} has a password but no --username`);
+      const sharing = ctx.proxy.config().proxies.find((proxy) => proxy.server === server && proxy.name !== name);
+      if (sharing !== undefined)
+        throw new CommandError(
+          "bad_args",
+          `proxy ${sharing.name} already uses ${server}`,
+          `Chrome tells proxies apart only by host and port; replace it with \`patchrome proxy add ${sharing.name} ...\``,
+        );
+      const isReplacing = ctx.proxy.config().proxies.some((proxy) => proxy.name === name);
+      const described = `${isReplacing ? "replace" : "add"} proxy ${name} ${server}${username === undefined ? "" : ` as ${username}`}`;
+      await ctx.proxy.change(session, "proxy-add", described, ({ config, passwords }) => {
+        const { [name]: _replaced, ...otherPasswords } = passwords;
+        return {
+          config: {
+            ...config,
+            proxies: [
+              ...config.proxies.filter((proxy) => proxy.name !== name),
+              { name, server, ...(username === undefined ? {} : { username }) },
+            ].toSorted((a, b) => a.name.localeCompare(b.name)),
+          },
+          passwords: password === undefined ? otherPasswords : { ...otherPasswords, [name]: password },
+        };
+      });
+      const rules = rulesVia(ctx.proxy.config().rules, name);
+      return {
+        lines: [
+          `${isReplacing ? "replaced" : "added"} proxy ${name} ${server}${username === undefined ? ", no auth" : ` as ${username}, password set`}`,
+          rules.length === 0
+            ? `no rule uses ${name} yet: \`patchrome proxy rule add <host> ${name}\``
+            : `rules via ${name}: ${rules.map((rule) => rule.pattern).join(" ")}`,
+        ],
+        fields: {
+          name,
+          server,
+          username,
+          hasPassword: password !== undefined,
+          isReplaced: isReplacing,
+          rules: rules.map((rule) => rule.pattern),
+        },
+      };
+    }
+    case "proxy-remove": {
+      const name = requiredString(args, "name");
+      requireProxy(ctx, name);
+      const rules = rulesVia(ctx.proxy.config().rules, name);
+      // Dropping the proxy would send its rules' hosts straight to the sites, from this machine's own IP.
+      if (rules.length > 0)
+        throw new CommandError(
+          "bad_args",
+          `proxy ${name} is used by ${rules.length} rule${rules.length === 1 ? "" : "s"}: ${rules.map((rule) => rule.pattern).join(" ")}`,
+          `remove those rules first with \`patchrome proxy rule remove <pattern>\``,
+        );
+      await ctx.proxy.change(session, "proxy-remove", `remove proxy ${name}`, ({ config, passwords }) => {
+        const { [name]: _removed, ...otherPasswords } = passwords;
+        return {
+          config: { ...config, proxies: config.proxies.filter((proxy) => proxy.name !== name) },
+          passwords: otherPasswords,
+        };
+      });
+      return { lines: [`removed proxy ${name}`], fields: { name } };
+    }
+    case "proxy-list": {
+      const config = ctx.proxy.config();
+      const proxies = config.proxies.map((proxy) => ({
+        name: proxy.name,
+        server: proxy.server,
+        username: proxy.username,
+        hasPassword: ctx.proxy.hasPassword(proxy.name),
+        rules: rulesVia(config.rules, proxy.name).map((rule) => rule.pattern),
+      }));
+      return {
+        lines:
+          proxies.length === 0
+            ? ["no proxies"]
+            : proxies.map(
+                (proxy) =>
+                  `${proxy.name}  ${proxy.server}  ${proxy.username === undefined ? "no auth" : `user ${proxy.username}  password set`}  ${proxy.rules.length === 0 ? "no rules" : `rules: ${proxy.rules.join(" ")}`}`,
+              ),
+        fields: { proxies },
+      };
+    }
+    case "proxy-rule-add": {
+      const pattern = parseRulePattern(requiredString(args, "pattern"));
+      const via = requiredString(args, "via");
+      if (!isBuiltInRoute(via)) requireProxy(ctx, via);
+      const existing = ctx.proxy.config().rules.find((rule) => rule.pattern === pattern);
+      if (existing !== undefined)
+        throw new CommandError(
+          "bad_args",
+          `rule ${pattern} already routes via ${existing.via}`,
+          `\`patchrome proxy rule remove ${pattern}\` first`,
+        );
+      requireNoIsolatedSessions(ctx);
+      const before = ctx.proxy.config();
+      await ctx.proxy.change(session, "proxy-rule-add", `add rule ${pattern} via ${via}`, ({ config, passwords }) => ({
+        config: { ...config, rules: [...config.rules, { pattern, via }] },
+        passwords,
+      }));
+      const { route } = routeForPattern(ctx, pattern);
+      const warning = await cookieWarning(ctx, before);
+      return {
+        lines: [
+          `rule ${pattern} ${routeLabel(route)}`,
+          ...(warning === undefined ? [] : [warning.line]),
+          proxySummary(ctx.proxy.config()),
+        ],
+        fields: { pattern, via, cookieDomains: warning?.domains ?? [], proxy: proxySummary(ctx.proxy.config()) },
+      };
+    }
+    case "proxy-rule-remove": {
+      const pattern = parseRulePattern(requiredString(args, "pattern"));
+      const rules = ctx.proxy.config().rules;
+      const existing = rules.find((rule) => rule.pattern === pattern);
+      if (existing === undefined)
+        throw new CommandError(
+          "bad_args",
+          `no rule ${pattern}`,
+          rules.length === 0
+            ? "there are no rules"
+            : `rules: ${rulesInMatchOrder(rules)
+                .map((rule) => rule.pattern)
+                .join(" ")}`,
+        );
+      const before = ctx.proxy.config();
+      await ctx.proxy.change(
+        session,
+        "proxy-rule-remove",
+        `remove rule ${pattern} via ${existing.via}`,
+        ({ config, passwords }) => ({
+          config: { ...config, rules: config.rules.filter((rule) => rule.pattern !== pattern) },
+          passwords,
+        }),
+      );
+      const { route } = routeForPattern(ctx, pattern);
+      const warning = await cookieWarning(ctx, before);
+      return {
+        lines: [
+          `removed rule ${pattern}; ${pattern === "*" ? "unmatched hosts" : pattern} now ${routeLabel(route)}`,
+          ...(warning === undefined ? [] : [warning.line]),
+          proxySummary(ctx.proxy.config()),
+        ],
+        fields: { pattern, cookieDomains: warning?.domains ?? [], proxy: proxySummary(ctx.proxy.config()) },
+      };
+    }
+    case "proxy-rule-list": {
+      const config = ctx.proxy.config();
+      const rules = rulesInMatchOrder(config.rules).map((rule) => ({
+        pattern: rule.pattern,
+        via: rule.via,
+        route: routeLabel(routeOf(config, rule)),
+      }));
+      const hasCatchAll = rules.some((rule) => rule.pattern === "*");
+      return {
+        lines: [
+          ...(rules.length === 0
+            ? ["no rules: every host goes direct"]
+            : rules.map((rule) => `${rule.pattern}  ${rule.route}`)),
+          ...(rules.length > 0 && !hasCatchAll ? ["(unmatched)  direct"] : []),
+        ],
+        fields: { rules, unmatched: hasCatchAll ? undefined : "direct" },
+      };
+    }
+    case "proxy-test": {
+      const url = requiredString(args, "url");
+      let host: string;
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("not http");
+        host = parsed.hostname;
+      } catch {
+        throw new CommandError("bad_args", `proxy test needs an http or https URL, got ${url}`);
+      }
+      const { rule, route } = ctx.proxy.routeFor(host);
+      const matched = `${host}  ${rule === undefined ? "no rule" : `matched ${rule.pattern}`}  ${routeLabel(route)}`;
+      if (route.kind === "block") return { lines: [matched], fields: { host, rule: rule?.pattern, route: route.kind } };
+      const echoUrl = parseIpEchoUrl(optionalString(args, "ipEchoUrl") ?? defaultIpEchoUrl);
+      const exit = await checkExitAddress({
+        echoUrl,
+        proxy:
+          route.kind === "proxy" ? { server: route.proxy, password: ctx.proxy.password(route.proxy.name) } : undefined,
+        timeoutMs,
+        ...(ctx.trustedCertificates === undefined ? {} : { trustedCertificates: ctx.trustedCertificates }),
+      });
+      const chromeTimeZone = await ctx.engine.chromeTimeZone();
+      const isTimeZoneMismatch = exit.timeZone !== undefined && exit.timeZone !== chromeTimeZone;
+      return {
+        lines: [
+          matched,
+          `exit ip ${exit.ip ?? "unknown"}${exit.country === undefined ? "" : `  ${exit.country}`}${exit.timeZone === undefined ? "" : `  ${exit.timeZone}`}  (from ${new URL(echoUrl).host})`,
+          ...(isTimeZoneMismatch
+            ? [
+                `warning: Chrome's timezone is ${chromeTimeZone}, the exit ip is in ${exit.timeZone}; sites that compare them may flag the session`,
+              ]
+            : []),
+        ],
+        fields: {
+          host,
+          rule: rule?.pattern,
+          route: route.kind,
+          proxy: route.kind === "proxy" ? route.proxy.name : undefined,
+          exitIp: exit.ip,
+          exitCountry: exit.country,
+          exitTimeZone: exit.timeZone,
+          chromeTimeZone,
+          isTimeZoneMismatch,
+          echoUrl,
+        },
+      };
+    }
+    case "proxy-clear": {
+      const { proxies, rules } = ctx.proxy.config();
+      await ctx.proxy.change(
+        session,
+        "proxy-clear",
+        `clear ${proxies.length} proxies and ${rules.length} rules`,
+        () => ({
+          config: { proxies: [], rules: [] },
+          passwords: {},
+        }),
+      );
+      return {
+        lines: [
+          `cleared ${proxies.length} proxies and ${rules.length} rules; Chrome uses its own proxy settings again`,
+        ],
+        fields: { clearedProxies: proxies.length, clearedRules: rules.length },
+      };
+    }
   }
+}
+
+function rulesVia(rules: ProxyRule[], via: string): ProxyRule[] {
+  return rulesInMatchOrder(rules).filter((rule) => rule.via === via);
+}
+
+function requireProxy(ctx: CommandContext, name: string): void {
+  if (ctx.proxy.config().proxies.some((proxy) => proxy.name === name)) return;
+  const names = ctx.proxy.config().proxies.map((proxy) => proxy.name);
+  throw new CommandError(
+    "bad_args",
+    `no proxy named ${name}`,
+    `${names.length === 0 ? "no proxies yet" : `proxies: ${names.join(" ")}`}; built-in routes: ${builtInRoutes.join(" ")}; add one with \`patchrome proxy add ${name} https://host:port\``,
+  );
+}
+
+// What a host matching the pattern, and not a more specific rule, now does.
+function routeForPattern(ctx: CommandContext, pattern: string) {
+  const sample = pattern === "*" ? "patchrome-unmatched.invalid" : pattern.replace(/^\*\./, "patchrome-sample.");
+  return ctx.proxy.routeFor(sample);
+}
+
+// Chrome keeps extensions out of isolated contexts, so their tabs would reach sites from this machine's own IP.
+function requireNoIsolatedSessions(ctx: CommandContext): void {
+  const isolated = ctx.registry.sessionNames().filter((name) => ctx.registry.browserContextOf(name) !== undefined);
+  if (isolated.length === 0) return;
+  throw new CommandError(
+    "bad_args",
+    `sessions ${isolated.join(" ")} have isolated tabs, which proxy rules cannot reach`,
+    "those sessions must close first; ask the user before closing a session that is not yours",
+  );
+}
+
+function requireNoProxyRules(ctx: CommandContext, hint: string): void {
+  if (!ctx.proxy.hasRules()) return;
+  throw new CommandError(
+    "bad_args",
+    "isolated tabs cannot use this profile's proxy rules: Chrome keeps the proxy extension out of them, so they would reach sites from this machine's own IP",
+    hint,
+  );
+}
+
+// A login moving to a new IP is the change most likely to get an account challenged, so the command says so.
+async function cookieWarning(
+  ctx: CommandContext,
+  before: ProxyConfig,
+): Promise<{ line: string; domains: string[] } | undefined> {
+  const cookies = await ctx.engine.cookies(undefined).catch(() => []);
+  const moved = [...new Set(cookies.map((cookie) => cookie.domain.replace(/^\./, "")))]
+    .toSorted()
+    .map((domain) => ({
+      domain,
+      before: routeLabel(routeOf(before, ruleForHost(before.rules, domain))),
+      after: routeLabel(ctx.proxy.routeFor(domain).route),
+    }))
+    .filter((entry) => entry.before !== entry.after);
+  if (moved.length === 0) return undefined;
+  const shown = moved
+    .slice(0, 5)
+    .map((entry) => `${entry.domain} ${entry.after}`)
+    .join(", ");
+  return {
+    line: `warning: logged-in sites change route: ${shown}${moved.length > 5 ? `, and ${moved.length - 5} more` : ""}; a site may challenge a login that moves to a new address`,
+    domains: moved.map((entry) => entry.domain),
+  };
 }
 
 // Closes every tab of the session and drops what the daemon kept for it. Returns how many tabs closed.
@@ -1069,6 +1396,10 @@ async function browserContextForOpen(
 ): Promise<string | undefined> {
   const existing = ctx.registry.browserContextOf(session);
   if (!isIsolatedRequest || existing !== undefined) return existing;
+  requireNoProxyRules(
+    ctx,
+    "for a separate cookie jar use a separate profile, `patchrome --profile <name> open <url>`, and ask the user before giving it proxy rules",
+  );
   if (ctx.registry.openTabsOf(session).length > 0) {
     throw new CommandError(
       "bad_args",
@@ -1107,7 +1438,10 @@ async function reopenSavedTabs(
   const restored: string[] = [];
   const dropped: string[] = [];
   ctx.registry.setLabel(saved.name, saved.label);
-  if (saved.isIsolated) ctx.registry.isolate(saved.name, await ctx.engine.createIsolatedContext());
+  if (saved.isIsolated) {
+    requireNoProxyRules(ctx, "run `patchrome session close` to drop the saved isolated session");
+    ctx.registry.isolate(saved.name, await ctx.engine.createIsolatedContext());
+  }
   const browserContextId = ctx.registry.browserContextOf(saved.name);
   for (const { id, url } of saved.tabs) {
     const page = await ctx.engine.openBackgroundPage(browserContextId);
@@ -1376,11 +1710,19 @@ function refLocator(tab: Tab, refInput: string): Locator {
   return tab.page.locator(`aria-ref=${ref}`);
 }
 
-async function navigate(page: Page, url: string, waitUntil: WaitState, timeoutMs: number): Promise<void> {
+async function navigate(
+  page: Page,
+  url: string,
+  waitUntil: WaitState,
+  timeoutMs: number,
+  proxy?: ProxyRouting,
+): Promise<void> {
+  const startedAtMs = Date.now();
   try {
     await page.goto(url, { waitUntil, timeout: timeoutMs });
   } catch (err) {
-    throw translateError(err, "navigation_failed");
+    const translated = translateError(err, "navigation_failed");
+    throw (await proxy?.explainNavigationFailure(url, translated.message, startedAtMs)) ?? translated;
   }
 }
 

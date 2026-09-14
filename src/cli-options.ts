@@ -38,6 +38,9 @@ export const cliOptions = {
   nth: { type: "string" },
   label: { type: "string" },
   out: { type: "string" },
+  username: { type: "string" },
+  "password-stdin": { type: "boolean", default: false },
+  "password-env": { type: "string" },
   format: { type: "string" },
   bail: { type: "boolean", default: false },
 } as const;
