@@ -48,6 +48,14 @@ export function makeCertificate(dir) {
 const listen = (server) =>
   new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
 
+// Chrome resets proxy and target connections whenever it drops a tunnel. Node turns a reset with no listener
+// into an uncaught exception, which ends the spike halfway through its report.
+const ignoreClientResets = (server) => {
+  server.on("clientError", () => {});
+  server.on("secureConnection", (socket) => socket.on("error", () => socket.destroy()));
+  server.on("connection", (socket) => socket.on("error", () => socket.destroy()));
+};
+
 // Targets record the client port of each request, so a proxy's upstream socket port says which proxy carried it.
 export async function startTargets({ key, cert }) {
   const requests = [];
@@ -65,6 +73,8 @@ export async function startTargets({ key, cert }) {
   };
   const h2 = createSecureServer({ key, cert, allowHTTP1: true }, (req, res) => respond(req, res, "https"));
   const plain = createHttpServer((req, res) => respond(req, res, "http"));
+  ignoreClientResets(h2);
+  ignoreClientResets(plain);
   return {
     requests,
     httpsPort: await listen(h2),
@@ -140,5 +150,6 @@ export async function startProxy({ name, key, cert, username, password, targets 
     socket.on("error", end);
   });
   server.on("tlsClientError", (err) => log.push({ event: "tls-error", message: err.message }));
+  ignoreClientResets(server);
   return { name, log, setPassword, port: await listen(server), close: () => server.close() };
 }
