@@ -56,7 +56,7 @@ export async function startDaemonAnsweringCopies(home: string, answer: ApprovalA
     { ...process.env, PATCHROME_HOME: home },
     {
       prompts: {
-        unpromptedReason: undefined,
+        approval: "prompt",
         async askApproval(reason) {
           asked.push(reason);
           return { answer, detail: undefined };

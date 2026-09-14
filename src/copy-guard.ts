@@ -29,12 +29,18 @@ export interface CopyRequest {
   origins: string[];
 }
 
-export interface HostPrompts {
-  // Why this desktop shows no prompt, which lets a copy through on the record alone. Undefined where it asks.
-  unpromptedReason: string | undefined;
-  askApproval(reason: string, timeoutMs: number): Promise<{ answer: ApprovalAnswer; detail: string | undefined }>;
-  notify(title: string, body: string): Promise<void>;
-}
+// A desktop either asks a person, or has no prompt a script cannot click and lets copies through on the record.
+export type HostPrompts =
+  | {
+      approval: "prompt";
+      askApproval(reason: string, timeoutMs: number): Promise<{ answer: ApprovalAnswer; detail: string | undefined }>;
+      notify(title: string, body: string): Promise<void>;
+    }
+  | {
+      approval: "unprompted";
+      unpromptedReason: string;
+      notify(title: string, body: string): Promise<void>;
+    };
 
 const auditEntrySchema = z.object({
   atUtc: z.string(),
@@ -95,18 +101,28 @@ export class CopyGuard {
   }
 
   async #decide(request: CopyRequest): Promise<{ decision: CopyDecision; detail: string | undefined }> {
-    const { unpromptedReason } = this.#options.prompts;
-    const { answer: decision, detail } =
-      unpromptedReason === undefined
-        ? await this.#options.prompts.askApproval(approvalReason(request), approvalTimeoutMs).catch((err: unknown) => ({
-            answer: "unavailable" as const,
-            detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
-          }))
-        : { answer: "unprompted" as const, detail: unpromptedReason };
+    const { decision, detail } = await this.#answer(request);
     // Fails the command when the record cannot be written: an unrecorded copy is what the log exists to prevent.
     await this.#record(request, decision, detail);
     await this.#notify(request, decision);
     return { decision, detail };
+  }
+
+  async #answer(request: CopyRequest): Promise<{ decision: CopyDecision; detail: string | undefined }> {
+    const prompts = this.#options.prompts;
+    switch (prompts.approval) {
+      case "unprompted":
+        return { decision: "unprompted", detail: prompts.unpromptedReason };
+      case "prompt": {
+        const { answer, detail } = await prompts
+          .askApproval(approvalReason(request), approvalTimeoutMs)
+          .catch((err: unknown) => ({
+            answer: "unavailable" as const,
+            detail: err instanceof Error ? err.message.split("\n")[0] : String(err),
+          }));
+        return { decision: answer, detail };
+      }
+    }
   }
 
   async #record(request: CopyRequest, decision: CopyDecision, detail: string | undefined): Promise<void> {

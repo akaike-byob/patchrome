@@ -39,7 +39,7 @@ function guardWith(answers: Array<ApprovalAnswer | Error | Promise<ApprovalAnswe
   const asked: string[] = [];
   const notified: string[] = [];
   const prompts: HostPrompts = {
-    unpromptedReason: undefined,
+    approval: "prompt",
     async askApproval(reason) {
       asked.push(reason);
       const next = answers.shift();
@@ -253,6 +253,18 @@ describe("approval settings and platforms", () => {
       decision: "unprompted",
       detail: expect.stringContaining("no approval prompt on linux"),
     });
+  });
+
+  it("refuses a copy on an unsupported platform", async () => {
+    const auditLogPath = join(mkdtempSync(join(tmpdir(), "patchrome-audit-")), "copy-audit.jsonl");
+    const guard = new CopyGuard({
+      prompts: hostPromptsFor("unsupported", () => {}, "/unused"),
+      auditLogPath,
+      profile: "stealth",
+      log: () => {},
+    });
+    expect(await codeOf(guard.requireApproval(importRequest))).toBe("copy_denied");
+    expect((await readAuditLog(auditLogPath)).entries[0]).toMatchObject({ decision: "unavailable" });
   });
 
   it("passes text into PowerShell as base64, never as code", () => {

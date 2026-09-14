@@ -395,7 +395,9 @@ one prompt at a time and refuses the copy with `copy_denied` when the person can
 - **macOS:** Touch ID, or the account password on a Mac without it, through LocalAuthentication.
 - **WSL:** Windows Hello, through `powershell.exe`. Without Hello set up, copies are refused.
 - **Linux:** no prompt a script cannot click exists, so copies go through on the audit record and a
-  notification alone, logged as `unprompted`.
+  `notify-send` notification alone, logged as `unprompted`. Without `notify-send` (the `libnotify-bin`
+  package on Debian and Ubuntu), the notification only reaches the daemon log.
+- **Other platforms:** copies are refused.
 
 `state save` does not ask. Every copy, approved or not, is appended to
 `~/.cache/patchrome/copy-audit.jsonl`, and `patchrome audit` lists the recent ones. A notification
