@@ -216,6 +216,33 @@ describe("state import from the everyday Chrome", () => {
     ]);
   });
 
+  it("fails an import that a tab holding the site's IndexedDB open would block, and keeps the session usable", async () => {
+    await runCli(home, "holder", ["open", `${fixture.origin}/form`]);
+    const held = await runCli(home, "holder", [
+      "eval",
+      `new Promise((resolve) => { const opening = indexedDB.open("auth"); opening.onsuccess = () => { window.heldAuth = opening.result; resolve(opening.result.version); }; })`,
+    ]);
+    expect(held.json.data?.value).toBe(3);
+
+    const blocked = await runCli(
+      home,
+      "holder",
+      ["--timeout-ms", "5000", "state", "import", "127.0.0.1", "--from", "work"],
+      chromeEnv,
+    );
+    expect(blocked.json.error, blocked.stderr).toMatchObject({ code: "bad_args" });
+    expect(blocked.json.error?.message).toContain("IndexedDB database auth");
+
+    const next = await runCli(home, "holder", ["eval", "window.heldAuth.name"]);
+    expect(next.json.data?.value).toBe("auth");
+
+    // The refused delete stays refused once the tab lets go: the site keeps its database.
+    await runCli(home, "holder", ["eval", "window.heldAuth.close()"]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const records = await runCli(home, "holder", ["eval", readSeededRecords]);
+    expect(records.json.data?.value).toEqual(seededRecords);
+  });
+
   it("names the Chrome profiles when --from matches none, and reports a site with no login", async () => {
     const unknown = await runCli(home, "importer", ["state", "import", "127.0.0.1", "--from", "School"], chromeEnv);
     expect(unknown.exitCode).toBe(2);

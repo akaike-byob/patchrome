@@ -65,14 +65,33 @@ export async function readOriginStorageInPage(): Promise<Omit<OriginStorage, "or
 
 // localStorage items are added next to what the origin has. Each IndexedDB database is replaced whole:
 // merging records into a schema of another version would leave the site's data half upgraded.
-export async function writeOriginStorageInPage(storage: Omit<OriginStorage, "origin">): Promise<void> {
+// Returns the name of a database it could not replace because another connection, such as a tab still on the
+// site, keeps it open. Deleting or upgrading waits for that connection to close, which it may never do.
+export async function writeOriginStorageInPage(storage: Omit<OriginStorage, "origin">): Promise<string | undefined> {
+  const isBlocked = Symbol("blocked");
   const settle = <T>(request: IDBRequest<T>) =>
     new Promise<T>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
+      if (request instanceof IDBOpenDBRequest) request.onblocked = () => reject(isBlocked);
     });
-  for (const { name, value } of storage.localStorage) localStorage.setItem(name, value);
-  for (const database of storage.indexedDB) {
+  // A blocked delete cannot be withdrawn: it runs whenever the other connection closes, long after this command
+  // failed. So an upgrade asks first, aborting itself before it changes anything. A blocked open is dropped
+  // when this page closes.
+  const ensureUnblocked = async (name: string) => {
+    const existing = (await indexedDB.databases()).find((info) => info.name === name);
+    if (existing?.version === undefined) return;
+    const probing = indexedDB.open(name, existing.version + 1);
+    probing.onupgradeneeded = () => probing.transaction?.abort();
+    await settle(probing).then(
+      (db) => db.close(),
+      (err: unknown) => {
+        if (err === isBlocked) throw err;
+      },
+    );
+  };
+  const replace = async (database: IndexedDbDatabase) => {
+    await ensureUnblocked(database.name);
     await settle(indexedDB.deleteDatabase(database.name));
     const opening = indexedDB.open(database.name, database.version);
     opening.onupgradeneeded = () => {
@@ -103,7 +122,17 @@ export async function writeOriginStorageInPage(storage: Omit<OriginStorage, "ori
     } finally {
       db.close();
     }
+  };
+  for (const { name, value } of storage.localStorage) localStorage.setItem(name, value);
+  for (const database of storage.indexedDB) {
+    try {
+      await replace(database);
+    } catch (err) {
+      if (err === isBlocked) return database.name;
+      throw err;
+    }
   }
+  return undefined;
 }
 
 // IndexedDB in Playwright's storageState file, so a file patchrome exports also loads in Playwright and back.
