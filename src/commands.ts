@@ -128,7 +128,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           await navigate(page, url, waitStateArg(args), timeoutMs, ctx.proxy);
         } catch (err) {
           // A failed open leaves no blank tab behind, so retries do not pile up orphans.
-          await page.close().catch(() => {});
+          await ctx.engine.closePage(page).catch(() => {});
           throw err;
         }
       }
@@ -152,7 +152,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
     case "close": {
       const tabId = optionalString(args, "tab");
       const tab = tabId === undefined ? ctx.registry.currentTab(session) : ctx.registry.ownedTab(session, tabId);
-      await tab.page.close();
+      await ctx.engine.closePage(tab.page);
       return { lines: [`closed ${tab.id}`], fields: { tab: tab.id } };
     }
     case "goto": {
@@ -489,7 +489,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       try {
         await navigate(page, url, "domcontentloaded", timeoutMs, ctx.proxy);
       } catch (err) {
-        await page.close().catch(() => {});
+        await ctx.engine.closePage(page).catch(() => {});
         throw err;
       }
       const closed = new Promise<"closed">((resolve) => page.once("close", () => resolve("closed")));
@@ -1370,7 +1370,7 @@ async function cookieWarning(
 async function closeSession(ctx: CommandContext, session: string): Promise<number> {
   const tabs = ctx.registry.openTabsOf(session);
   const browserContextId = ctx.registry.browserContextOf(session);
-  await Promise.all(tabs.map((tab) => tab.page.close().catch(() => {})));
+  await Promise.all(tabs.map((tab) => ctx.engine.closePage(tab.page).catch(() => {})));
   if (browserContextId !== undefined) await ctx.engine.disposeIsolatedContext(browserContextId).catch(() => {});
   ctx.registry.forget(session);
   ctx.network.forget(session);
@@ -1453,7 +1453,7 @@ async function reopenSavedTabs(
       await navigate(page, url, "domcontentloaded", timeoutMs);
       restored.push(id);
     } catch {
-      await page.close().catch(() => {});
+      await ctx.engine.closePage(page).catch(() => {});
       dropped.push(id);
     }
   }
@@ -1646,7 +1646,7 @@ async function onOriginWithoutSite<T>(
     await page.goto(`${origin}/`, { waitUntil: "commit", timeout: timeoutMs });
     return await run(page);
   } finally {
-    await page.close().catch(() => {});
+    await ctx.engine.closePage(page).catch(() => {});
   }
 }
 

@@ -64,6 +64,8 @@ export interface BrowserEngine {
   openBackgroundPage(browserContextId?: string): Promise<Page>;
   // Brings Chrome forward on purpose, for a person to use the tab.
   openForegroundPage(browserContextId?: string): Promise<Page>;
+  // Closing Chrome's last tab would quit Chrome on some hosts, so the last tab leaves a blank one behind there.
+  closePage(page: Page): Promise<void>;
   cookies(urls: string[] | undefined, browserContextId?: string): Promise<Cookie[]>;
   addCookies(cookies: Cookie[], browserContextId?: string): Promise<void>;
   createIsolatedContext(): Promise<string>;
@@ -114,21 +116,29 @@ export class PatchrightEngine implements BrowserEngine {
   #targetIdByPage = new WeakMap<Page, Promise<string>>();
   #userDataDir: string | undefined;
   #isHeadless: boolean;
+  #chromeQuitsWithLastWindow: boolean;
   #trustedSpkiHashes: string[];
+  // Chrome's startup tab, or the one closePage opened to keep Chrome alive. The next background tab reuses
+  // it, and any other tab closes it, so no session sees a stray blank tab next to its own.
+  #blankPage: Page | undefined;
+  #closingPages = new Set<Page>();
 
   // trustedSpkiHashes lets integration tests run HTTPS proxies on self-signed certificates. Only code in the
   // daemon's own process can pass it; the __daemon entrypoint passes none.
   constructor({
     chromeHost,
     isHeadless,
+    chromeQuitsWithLastWindow,
     trustedSpkiHashes = [],
   }: {
     chromeHost: ChromeHost;
     isHeadless: boolean;
+    chromeQuitsWithLastWindow: boolean;
     trustedSpkiHashes?: string[];
   }) {
     this.#chromeHost = chromeHost;
     this.#isHeadless = isHeadless;
+    this.#chromeQuitsWithLastWindow = chromeQuitsWithLastWindow;
     this.#trustedSpkiHashes = trustedSpkiHashes;
   }
 
@@ -170,6 +180,8 @@ export class PatchrightEngine implements BrowserEngine {
     if (!browser) throw new Error("persistent context exposed no browser for a browser-level CDP session");
     this.#browserCdp = await browser.newBrowserCDPSession();
     this.#context = context;
+    // A persistent launch always opens a window with one blank tab; Chrome without a window never reports ready.
+    this.#blankPage = context.pages()[0];
     const { id } = await this.#browserCdp.send("Extensions.loadUnpacked", {
       path: await this.#pathForChrome(tabGroupsExtensionDir),
     });
@@ -222,12 +234,34 @@ export class PatchrightEngine implements BrowserEngine {
   }
 
   async openBackgroundPage(browserContextId?: string): Promise<Page> {
-    return this.#openTarget(true, browserContextId);
+    if (browserContextId === undefined) {
+      const blankPage = this.#blankPage;
+      this.#blankPage = undefined;
+      if (blankPage !== undefined && !blankPage.isClosed()) return blankPage;
+    }
+    return this.#closeBlankPageAfter(this.#openTarget(true, browserContextId));
   }
 
   async openForegroundPage(browserContextId?: string): Promise<Page> {
-    if (browserContextId === undefined) return this.#requireContext().newPage();
-    return this.#openTarget(false, browserContextId);
+    return this.#closeBlankPageAfter(
+      browserContextId === undefined ? this.#requireContext().newPage() : this.#openTarget(false, browserContextId),
+    );
+  }
+
+  async closePage(page: Page): Promise<void> {
+    this.#closingPages.add(page);
+    try {
+      // Parallel closes all see the others still open, so only the last one to start opens the blank tab.
+      const isLastPage = this.#requireContext()
+        .pages()
+        .every((open) => this.#closingPages.has(open));
+      if (this.#chromeQuitsWithLastWindow && isLastPage && this.#blankPage === undefined) {
+        this.#blankPage = await this.#openTarget(true, undefined);
+      }
+      await page.close();
+    } finally {
+      this.#closingPages.delete(page);
+    }
   }
 
   // Playwright does not know isolated contexts and files their pages under the persistent one, so
@@ -422,6 +456,15 @@ export class PatchrightEngine implements BrowserEngine {
       ...(browserContextId === undefined ? {} : { browserContextId }),
     });
     return pagePromise;
+  }
+
+  // The blank tab closes only once the new tab is up, so Chrome never has zero windows in between.
+  async #closeBlankPageAfter(opening: Promise<Page>): Promise<Page> {
+    const page = await opening;
+    const blankPage = this.#blankPage;
+    this.#blankPage = undefined;
+    await blankPage?.close().catch(() => {});
+    return page;
   }
 
   // The extension API names tabs by its own ids; CDP target ids are the only id both sides share.
