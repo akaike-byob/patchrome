@@ -4,7 +4,7 @@ import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import { currentBuildId } from "./build-id.ts";
+import { currentBuildId, isNewerBuild } from "./build-id.ts";
 import { CopyGuard, type HostPrompts } from "./copy-guard.ts";
 import { detectHostPlatform } from "./host-platform.ts";
 import { hostPromptsFor } from "./host-prompts.ts";
@@ -375,7 +375,10 @@ export async function runDaemon(
         error: new CommandError(
           "daemon_outdated",
           `the running daemon is patchrome build ${buildId}, this CLI is ${request.buildId}`,
-          "run `patchrome daemon stop` once no other session is browsing; the next command starts a current daemon",
+          // A newer CLI replaces this daemon itself, so the hint only reaches an older or unordered one.
+          isNewerBuild(buildId, request.buildId)
+            ? "this CLI is older than the daemon: run `npx -y patchrome@latest`"
+            : "run `patchrome daemon stop` once no other session is browsing; the next command starts a current daemon",
         ).toBody(),
       });
     }

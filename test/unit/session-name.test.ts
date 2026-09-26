@@ -25,6 +25,17 @@ describe("resolveSessionName", () => {
     expect(resolveSessionName({}, 300, table)).toBe("pid-200");
   });
 
+  it("skips npx, which ps names by its title", () => {
+    const viaNpx = processTable([
+      { pid: 600, ppid: 500, command: "node", tty: "??" },
+      { pid: 500, ppid: 400, command: "/bin/sh", tty: "??" },
+      { pid: 400, ppid: 300, command: "npm exec patchrome@latest", tty: "??" },
+      { pid: 300, ppid: 200, command: "/bin/zsh", tty: "??" },
+      { pid: 200, ppid: 1, command: "codex", tty: "??" },
+    ]);
+    expect(resolveSessionName({}, 600, viaNpx)).toBe("pid-200");
+  });
+
   it("uses the controlling tty for a human terminal", () => {
     const terminal = processTable([
       { pid: 500, ppid: 400, command: "-zsh", tty: "ttys008" },

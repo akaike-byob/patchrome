@@ -1,26 +1,29 @@
 ---
 name: patchrome
 description: Drives a real, stealth, headed Google Chrome from the shell through the `patchrome` CLI - opens tabs, reads pages as accessibility snapshots with @refs, clicks, fills, extracts text and rows, reads network responses, signs in once and reuses the login, and exports a working flow as a script. Many agent sessions share one Chrome and one logged-in profile, each on its own tabs. Use whenever a task needs a real browser - a page behind a bot wall or login, JS-rendered content that curl cannot see, scraping, clicking through a web app, a repeatable scrape script, or checking what a site shows.
-allowed-tools: Bash(patchrome:*)
+allowed-tools: Bash(npx -y patchrome@latest:*)
 ---
 
 # Browser from the CLI (`patchrome`)
 
 One daemon owns one headed Chrome per profile. Every `patchrome` call is a short client; the first
 starts Chrome. Other agent sessions browse the same Chrome at once, and you see only your own tabs.
-If `patchrome` is not on PATH: `npm i -g patchrome`.
+
+Always run it as `npx -y patchrome@latest <command>`, never a bare `patchrome`, even one on PATH. The
+first call on a new release replaces the older daemon, and every session's tabs reopen. Below, in the
+references and in error hints, `patchrome` is short for `npx -y patchrome@latest`.
 
 ## The loop
 
 ```bash
-patchrome session label "compare laptop prices"   # first: the user sees it on your Chrome tab group
-patchrome open https://example.com                # new background tab, becomes your current tab
-patchrome snapshot                                # accessibility tree to a file; prints its path
+npx -y patchrome@latest session label "compare laptop prices"  # first: the user sees it on your tab group
+npx -y patchrome@latest open https://example.com               # new background tab, now your current tab
+npx -y patchrome@latest snapshot                               # accessibility tree to a file; prints its path
 # grep the file for the node: - button "Sign in" [ref=f1e6]
-patchrome fill @f1e5 "alice@example.com"
-patchrome click @f1e6
-patchrome wait --url '*/dashboard*'               # click returns before the next page loads
-patchrome snapshot                                # refs from before a navigation are stale
+npx -y patchrome@latest fill @f1e5 "alice@example.com"
+npx -y patchrome@latest click @f1e6
+npx -y patchrome@latest wait --url '*/dashboard*'              # click returns before the next page loads
+npx -y patchrome@latest snapshot                               # refs from before a navigation are stale
 ```
 
 Copy refs exactly from the latest snapshot, from a line that has `[ref=...]`. A locator works anywhere
@@ -71,7 +74,7 @@ Exit code 0 ok, 1 command error, 2 bad usage. `--json` errors carry a `code`:
 | `timeout` | snapshot to see the page state; raise `--timeout-ms` if the site is slow |
 | `navigation_failed` | DNS, TLS or connection failure: check the URL, retry once |
 | `daemon_unreachable` | `patchrome daemon logs`; the next command restarts the daemon |
-| `daemon_outdated` | tell the user; `daemon stop` closes Chrome for every session |
+| `daemon_outdated` | a CLI older than the daemon: rerun through `npx -y patchrome@latest`; if it still fails, tell the user |
 | `bad_args` | wrong usage, a JS error in `eval`, a bad schema or selector: read the message and hint |
 | `unsupported_in_stealth` | the command needs `--profile debug`, which is only for your own apps |
 | `copy_denied` | the user refused a login copy: tell them, do not retry, never copy cookies another way |

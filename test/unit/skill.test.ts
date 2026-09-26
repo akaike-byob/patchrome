@@ -48,7 +48,7 @@ describe("published skills", () => {
       expect(frontmatter.name).toBe(skillName);
       expect(frontmatter.description?.length).toBeGreaterThan(40);
       expect(frontmatter.description?.length).toBeLessThanOrEqual(1024);
-      expect(frontmatter["allowed-tools"]).toBe("Bash(patchrome:*)");
+      expect(frontmatter["allowed-tools"]).toBe("Bash(npx -y patchrome@latest:*)");
     });
 
     it(`${skillName} keeps SKILL.md within ${skillBodyBudgetBytes} bytes`, () => {

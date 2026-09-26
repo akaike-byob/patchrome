@@ -307,6 +307,8 @@ export function formatHistory(
           : `# patchrome session ${session}: ${steps.length} steps, ${new Date(first.atMs).toISOString()} to ${new Date(last.atMs).toISOString()}`,
         "# Lines starting with `# check:` need a look before this runs unattended.",
         "set -eu",
+        "# The latest release replaces an older daemon; set PATCHROME_CLI=patchrome to run an installed CLI instead.",
+        'patchrome() { command ${PATCHROME_CLI:-npx -y patchrome@latest} "$@"; }',
         `export PATCHROME_SESSION="\${PATCHROME_SESSION:-replay-$$}"`,
         ...(profile === "stealth" ? [] : [`export PATCHROME_PROFILE="\${PATCHROME_PROFILE:-${profile}}"`]),
         "",

@@ -1,4 +1,4 @@
-import { currentBuildId, moduleExtension } from "./build-id.ts";
+import { currentBuildId, isNewerBuild, moduleExtension } from "./build-id.ts";
 import { spawn } from "node:child_process";
 import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
@@ -15,6 +15,10 @@ import {
 } from "./protocol.ts";
 
 const daemonStartTimeoutMs = 30_000;
+// An outdated daemon saves its sessions and closes Chrome before it exits; a new Chrome on the same profile
+// before then would hand its window to the old one and quit.
+const daemonExitTimeoutMs = 30_000;
+const daemonControlTimeoutMs = 10_000;
 const lockPollMs = 100;
 // A lock whose owner pid is dead is stale at once. Without a pid file yet, the owner may be between
 // mkdir and writing it, so only a lock older than this is stale.
@@ -36,6 +40,8 @@ interface PendingRequest {
   reject: (err: CommandError) => void;
   onStream: (stream: DaemonStreamLine["stream"]) => void;
   timer: NodeJS.Timeout;
+  // A socket closed on purpose closes after its replacement opened; it fails only its own requests.
+  socket: Socket;
 }
 
 // One socket to one profile's daemon, carrying any number of requests told apart by id. A CLI call sends one
@@ -48,6 +54,7 @@ export class DaemonConnection {
   #socket: Promise<Socket> | undefined;
   #pending = new Map<number, PendingRequest>();
   #nextId = 1;
+  #replacingDaemon: Promise<boolean> | undefined;
 
   constructor(profile: string, env: NodeJS.ProcessEnv = process.env) {
     idleMsFrom(env);
@@ -57,6 +64,52 @@ export class DaemonConnection {
   }
 
   async request(request: CommandRequest): Promise<DaemonResponse> {
+    const response = await this.#send(request);
+    if (response.ok || response.error.code !== "daemon_outdated") return response;
+    // Requests in flight together share one replacement.
+    this.#replacingDaemon ??= this.#replaceOutdatedDaemon(request.session).finally(() => {
+      this.#replacingDaemon = undefined;
+    });
+    return (await this.#replacingDaemon) ? this.#send(request) : response;
+  }
+
+  // Stops a daemon older than this CLI and waits for it to exit. Other sessions lose their in-flight commands;
+  // their tabs come back on their next command. Holding the start lock meanwhile keeps other CLIs from
+  // launching a Chrome before the old one has closed. Returns whether a retry can reach a current daemon.
+  async #replaceOutdatedDaemon(session: string): Promise<boolean> {
+    const buildId = currentBuildId(this.#env);
+    const outdated = await this.#runningDaemon(session);
+    if (outdated === undefined || !isNewerBuild(buildId, outdated.buildId)) return false;
+    const paths = profilePaths(this.#profile, this.#env);
+    await acquireLock(paths.lockDir);
+    try {
+      // Another CLI may have replaced it while this one waited for the lock.
+      this.close();
+      const running = await this.#runningDaemon(session);
+      if (running === undefined || running.buildId === buildId) return true;
+      if (!isNewerBuild(buildId, running.buildId)) return false;
+      await this.#send(daemonControl(session, "daemon-stop"));
+      this.close();
+      await waitForExit(running.pid);
+      return true;
+    } finally {
+      await rm(paths.lockDir, { recursive: true, force: true });
+    }
+  }
+
+  async #runningDaemon(session: string): Promise<{ buildId: string; pid: number } | undefined> {
+    try {
+      const status = await this.#send(daemonControl(session, "daemon-status"));
+      if (!status.ok) return undefined;
+      const { buildId, pid } = status.data.fields;
+      return typeof buildId === "string" && typeof pid === "number" ? { buildId, pid } : undefined;
+    } catch (err) {
+      if (err instanceof CommandError && err.code === "daemon_unreachable") return undefined;
+      throw err;
+    }
+  }
+
+  async #send(request: CommandRequest): Promise<DaemonResponse> {
     const socket = await this.#connect(request.shouldStartDaemon);
     const id = this.#nextId++;
     const deadlineMs = request.timeoutMs + daemonStartTimeoutMs;
@@ -66,7 +119,7 @@ export class DaemonConnection {
         this.#unrefWhenIdle(socket);
         reject(new CommandError("daemon_unreachable", `daemon did not answer within ${deadlineMs} ms`));
       }, deadlineMs);
-      this.#pending.set(id, { resolve, reject, onStream: request.onStream ?? (() => {}), timer });
+      this.#pending.set(id, { resolve, reject, onStream: request.onStream ?? (() => {}), timer, socket });
     });
     socket.ref();
     socket.write(
@@ -141,6 +194,7 @@ export class DaemonConnection {
         () => {},
       );
       for (const [id, pending] of this.#pending) {
+        if (pending.socket !== socket) continue;
         clearTimeout(pending.timer);
         this.#pending.delete(id);
         pending.reject(new CommandError("daemon_unreachable", reason));
@@ -154,6 +208,33 @@ export class DaemonConnection {
   // An idle socket must not keep a script's process alive after its last request.
   #unrefWhenIdle(socket: Socket): void {
     if (this.#pending.size === 0) socket.unref();
+  }
+}
+
+function daemonControl(session: string, command: "daemon-status" | "daemon-stop"): CommandRequest {
+  return { session, command, args: {}, timeoutMs: daemonControlTimeoutMs, argv: [], shouldStartDaemon: false };
+}
+
+async function waitForExit(pid: number): Promise<void> {
+  const deadlineMs = Date.now() + daemonExitTimeoutMs;
+  while (isAlive(pid)) {
+    if (Date.now() > deadlineMs)
+      throw new CommandError(
+        "daemon_unreachable",
+        `the outdated daemon, pid ${pid}, did not exit within ${daemonExitTimeoutMs} ms`,
+        "see `patchrome daemon logs`",
+      );
+    await sleep(lockPollMs);
+  }
+}
+
+async function acquireLock(lockDir: string): Promise<void> {
+  const deadlineMs = Date.now() + daemonStartTimeoutMs;
+  while (!(await tryAcquireLock(lockDir))) {
+    if (Date.now() > deadlineMs)
+      throw new CommandError("daemon_unreachable", `${lockDir} stayed locked for ${daemonStartTimeoutMs} ms`);
+    await clearStaleLock(lockDir);
+    await sleep(lockPollMs);
   }
 }
 

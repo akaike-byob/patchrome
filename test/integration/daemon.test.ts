@@ -64,17 +64,36 @@ describe("daemon lifecycle", () => {
     expect(existsSync(join(home, "stealth", "daemon.lock"))).toBe(false);
   });
 
-  it("refuses commands from a CLI of another build, but still stops for it", async () => {
-    const newer = { PATCHROME_BUILD_ID: "9.9.9+1" };
-    const refused = await runCli(home, "upgrade", ["tabs"], newer);
+  it("refuses commands from an older CLI, but still stops for it", async () => {
+    const older = { PATCHROME_BUILD_ID: "0.0.0-development+1" };
+    const refused = await runCli(home, "upgrade", ["tabs"], older);
     expect(refused.exitCode).toBe(1);
     expect(refused.json.error?.code).toBe("daemon_outdated");
-    expect((await runCli(home, "upgrade", ["daemon", "status"], newer)).json).toMatchObject({ ok: true });
-    expect((await runCli(home, "upgrade", ["daemon", "stop"], newer)).json).toMatchObject({ ok: true });
+    expect(refused.json.error?.hint).toMatch(/patchrome@latest/);
+    expect((await runCli(home, "upgrade", ["daemon", "status"], older)).json).toMatchObject({ ok: true });
+    expect((await runCli(home, "upgrade", ["daemon", "stop"], older)).json).toMatchObject({ ok: true });
     const socketPath = join(home, "stealth", "daemon.sock");
     const deadlineMs = Date.now() + 15_000;
     while (existsSync(socketPath) && Date.now() < deadlineMs) await sleep(250);
     expect((await runCli(home, "upgrade", ["tabs"])).json).toMatchObject({ ok: true });
+  });
+
+  it("replaces an older daemon when a newer CLI arrives, and gives other sessions their tabs back", async () => {
+    const opened = await runCli(home, "bystander", ["open", `${fixture.origin}/form?name=bystander`]);
+    expect(opened.json).toMatchObject({ ok: true });
+    const oldPid = (await runCli(home, "bystander", ["daemon", "status"])).json.data?.pid;
+
+    const newer = { PATCHROME_BUILD_ID: "0.0.0-development+99999999999999" };
+    const listed = await runCli(home, "upgrade", ["tabs"], newer);
+    expect(listed.json, listed.stderr).toMatchObject({ ok: true });
+    const status = await runCli(home, "upgrade", ["daemon", "status"], newer);
+    expect(status.json.data).toMatchObject({ buildId: newer.PATCHROME_BUILD_ID });
+    expect(status.json.data?.pid).not.toBe(oldPid);
+    expect(daemonPidsFor(home)).toEqual([status.json.data?.pid]);
+
+    const restored = await runCli(home, "bystander", ["tabs"], newer);
+    expect(restored.json.data?.tabs).toEqual([expect.objectContaining({ id: opened.json.data?.tab })]);
+    await stopDaemon(home);
   });
 
   it("reports daemon_unreachable for status when nothing runs, without starting one", async () => {
