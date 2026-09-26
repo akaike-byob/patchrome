@@ -89,9 +89,12 @@ export async function runDaemon(
   };
 
   const isHeadless = isTestHeadlessFrom(env);
+  const hostPlatform = detectHostPlatform();
   const engine: BrowserEngine = new PatchrightEngine({
-    chromeHost: chromeHostFor(detectHostPlatform()),
+    chromeHost: chromeHostFor(hostPlatform),
     isHeadless,
+    // macOS Chrome keeps running with no window open; Windows and Linux Chrome quit with their last one.
+    chromeQuitsWithLastWindow: !isHeadless && hostPlatform !== "macos",
     trustedSpkiHashes: (options.trustedCertificates ?? []).map(spkiHashOf),
   });
   const proxy = new ProxyRouting({
@@ -383,7 +386,8 @@ export async function runDaemon(
       disconnected,
     };
 
-    if (isStreaming(request)) {
+    // status and stop skip the queue too, so a command stuck in a session can still be inspected and ended.
+    if (isStreaming(request) || request.command === "daemon-status" || request.command === "daemon-stop") {
       try {
         await launched;
         const { lines, fields } = await runCommand(ctx, call);

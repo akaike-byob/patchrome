@@ -128,7 +128,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           await navigate(page, url, waitStateArg(args), timeoutMs, ctx.proxy);
         } catch (err) {
           // A failed open leaves no blank tab behind, so retries do not pile up orphans.
-          await page.close().catch(() => {});
+          await ctx.engine.closePage(page).catch(() => {});
           throw err;
         }
       }
@@ -152,7 +152,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
     case "close": {
       const tabId = optionalString(args, "tab");
       const tab = tabId === undefined ? ctx.registry.currentTab(session) : ctx.registry.ownedTab(session, tabId);
-      await tab.page.close();
+      await ctx.engine.closePage(tab.page);
       return { lines: [`closed ${tab.id}`], fields: { tab: tab.id } };
     }
     case "goto": {
@@ -489,7 +489,7 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
       try {
         await navigate(page, url, "domcontentloaded", timeoutMs, ctx.proxy);
       } catch (err) {
-        await page.close().catch(() => {});
+        await ctx.engine.closePage(page).catch(() => {});
         throw err;
       }
       const closed = new Promise<"closed">((resolve) => page.once("close", () => resolve("closed")));
@@ -1370,7 +1370,7 @@ async function cookieWarning(
 async function closeSession(ctx: CommandContext, session: string): Promise<number> {
   const tabs = ctx.registry.openTabsOf(session);
   const browserContextId = ctx.registry.browserContextOf(session);
-  await Promise.all(tabs.map((tab) => tab.page.close().catch(() => {})));
+  await Promise.all(tabs.map((tab) => ctx.engine.closePage(tab.page).catch(() => {})));
   if (browserContextId !== undefined) await ctx.engine.disposeIsolatedContext(browserContextId).catch(() => {});
   ctx.registry.forget(session);
   ctx.network.forget(session);
@@ -1453,7 +1453,7 @@ async function reopenSavedTabs(
       await navigate(page, url, "domcontentloaded", timeoutMs);
       restored.push(id);
     } catch {
-      await page.close().catch(() => {});
+      await ctx.engine.closePage(page).catch(() => {});
       dropped.push(id);
     }
   }
@@ -1607,13 +1607,26 @@ async function writeOriginStorage(
   browserContextId: string | undefined,
 ): Promise<void> {
   if (storage.localStorage.length === 0 && storage.indexedDB.length === 0) return;
-  await onOriginWithoutSite(ctx, storage.origin, timeoutMs, browserContextId, (page) =>
+  const blockingDatabase = await onOriginWithoutSite(ctx, storage.origin, timeoutMs, browserContextId, (page) =>
     page.evaluate(
       writeOriginStorageInPage,
       { localStorage: storage.localStorage, indexedDB: storage.indexedDB },
       undefined,
       true,
     ),
+  );
+  if (blockingDatabase === undefined) return;
+  const tabsOnOrigin = ctx.registry
+    .allTabs()
+    .filter((tab) => ctx.registry.browserContextOf(tab.session) === browserContextId)
+    .filter((tab) => originOfUrl(tab.url) === storage.origin)
+    .map((tab) => `${tab.id} (session ${tab.session})`);
+  throw new CommandError(
+    "bad_args",
+    `IndexedDB database ${blockingDatabase} of ${storage.origin} is open in another tab, so it cannot be replaced`,
+    tabsOnOrigin.length === 0
+      ? `close every tab on ${storage.origin}, then retry`
+      : `close ${tabsOnOrigin.join(", ")} or move it off ${storage.origin}, then retry`,
   );
 }
 
@@ -1630,7 +1643,8 @@ async function readOriginStorage(
 }
 
 // Reaches an origin's storage without contacting the site: a background tab loads the origin from a route that
-// answers with an empty page, runs, and closes. The tab is never adopted by a session.
+// answers with an empty page, runs, and closes. The tab is never adopted by a session. `run` gets the same
+// timeout as the navigation: an evaluate has none of its own, and a stuck one would hold the session queue.
 async function onOriginWithoutSite<T>(
   ctx: CommandContext,
   origin: string,
@@ -1644,9 +1658,27 @@ async function onOriginWithoutSite<T>(
       route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>patchrome state</title>" }),
     );
     await page.goto(`${origin}/`, { waitUntil: "commit", timeout: timeoutMs });
-    return await run(page);
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new CommandError(
+              "timeout",
+              `reading or writing the storage of ${origin} did not finish within ${timeoutMs} ms`,
+              "close the tabs on that origin and retry, or raise --timeout-ms",
+            ),
+          ),
+        timeoutMs,
+      );
+    });
+    try {
+      return await Promise.race([run(page), expired]);
+    } finally {
+      clearTimeout(timer);
+    }
   } finally {
-    await page.close().catch(() => {});
+    await ctx.engine.closePage(page).catch(() => {});
   }
 }
 

@@ -409,7 +409,9 @@ reads the site's cookies and storage. The copy is deleted afterwards, and on mac
 everyday Chrome can keep running. On WSL the import reads the Windows Chrome, which locks its cookie
 database while it runs: quit Chrome first, or the import stops with `bad_args`. Cookies are encrypted with Chrome's OS credential-store key, so the reader Chrome runs
 without Playwright's mock credential store. Cookies go in next to the ones already there. localStorage items
-are added, and each imported IndexedDB database replaces the one with the same name.
+are added, and each imported IndexedDB database replaces the one with the same name. A tab still on
+the site that keeps that database open blocks the replacement, and the import stops with `bad_args`
+naming the tab: close it or move it off the site, then import again.
 
 ### Moving a login to another machine
 
