@@ -89,9 +89,12 @@ export async function runDaemon(
   };
 
   const isHeadless = isTestHeadlessFrom(env);
+  const hostPlatform = detectHostPlatform();
   const engine: BrowserEngine = new PatchrightEngine({
-    chromeHost: chromeHostFor(detectHostPlatform()),
+    chromeHost: chromeHostFor(hostPlatform),
     isHeadless,
+    // macOS Chrome keeps running with no window open; Windows and Linux Chrome quit with their last one.
+    chromeQuitsWithLastWindow: !isHeadless && hostPlatform !== "macos",
     trustedSpkiHashes: (options.trustedCertificates ?? []).map(spkiHashOf),
   });
   const proxy = new ProxyRouting({

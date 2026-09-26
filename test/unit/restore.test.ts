@@ -37,6 +37,9 @@ function contextOpening(pagesBeforeFailure: number) {
       opened.push(page);
       return page;
     },
+    async closePage(page: FakePage) {
+      await page.close();
+    },
   } as unknown as BrowserEngine;
   const registry = new SessionRegistry();
   const ctx = {
