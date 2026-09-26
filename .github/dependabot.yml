@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Preset 10 needs conventional-changelog-writer 9, and @semantic-release/release-notes-generator still
+      # bundles writer 8, so a release fails at generateNotes. Drop this once the generator moves to writer 9.
+      - dependency-name: conventional-changelog-conventionalcommits
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: development
