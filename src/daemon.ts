@@ -386,7 +386,8 @@ export async function runDaemon(
       disconnected,
     };
 
-    if (isStreaming(request)) {
+    // status and stop skip the queue too, so a command stuck in a session can still be inspected and ended.
+    if (isStreaming(request) || request.command === "daemon-status" || request.command === "daemon-stop") {
       try {
         await launched;
         const { lines, fields } = await runCommand(ctx, call);
