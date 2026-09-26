@@ -121,4 +121,18 @@ describe("daemon lifecycle", () => {
     expect(waited.json.error?.code).toBe("timeout");
     await runCli(busyHome, "s", ["daemon", "stop"], idle);
   });
+
+  it("answers status and stop from a session whose queue a long command holds", async () => {
+    const stuckHome = makeHome("stuck");
+    expect((await runCli(stuckHome, "s", ["open"])).json).toMatchObject({ ok: true });
+    const waiting = runCli(stuckHome, "s", ["--timeout-ms", "60000", "wait", "--text", "never shown"]);
+    // Long enough for the waiting CLI to start and reach the daemon first.
+    await sleep(3000);
+    const status = await runCli(stuckHome, "s", ["daemon", "status"]);
+    expect(status.json).toMatchObject({ ok: true });
+    const stopped = await runCli(stuckHome, "s", ["daemon", "stop"]);
+    expect(stopped.json).toMatchObject({ ok: true });
+    // The stop ends the wait long before its own timeout would.
+    expect((await waiting).json.error?.code).toBe("tab_gone");
+  });
 });
