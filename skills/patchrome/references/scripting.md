@@ -29,6 +29,8 @@ before handing the script over:
 - tab ids and `login`, `challenge --handoff`, `state import` steps need a person or may differ
 
 Run the export once in a fresh session (`PATCHROME_SESSION=try-1 sh scrape.sh`) before calling it done.
+The script runs each step through `npx -y patchrome@latest`; `PATCHROME_CLI=patchrome` makes it use
+an installed CLI instead.
 
 ## Output that keeps its shape
 

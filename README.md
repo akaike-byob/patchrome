@@ -76,15 +76,24 @@ errors, traces and raw CDP, and it lets chrome-devtools-mcp attach for Lighthous
 
 ## Install
 
+Nothing to install for agents: the skill runs every command as `npx -y patchrome@latest`, so each call
+uses the newest release. Add the skill, as in [Give it to your agents](#give-it-to-your-agents), and you
+are done. By hand:
+
 ```bash
-npm i -g patchrome        # the `patchrome` command, on PATH everywhere
-npx patchrome session     # or without installing
-npm i patchrome           # in a Node project, for `import { connect } from "patchrome"`
-patchrome session         # starts the daemon and Chrome, prints your session name
+npx -y patchrome@latest session   # starts the daemon and Chrome, prints your session name
+npm i patchrome                   # in a Node project, for `import { connect } from "patchrome"`
 ```
 
-Every install of the same version shares one daemon per profile, so a global CLI, a project's library
-and `npx` can browse at once.
+`npx` checks the registry on each call, which cost 0.4 s per command on an M-series Mac. A global
+`npm i -g patchrome` skips that, but you then update it yourself. The examples below write `patchrome`
+for either.
+
+Every install of the same version shares one daemon per profile, so `npx`, a global CLI and a project's
+library can browse at once. A newer release replaces an older daemon: the first command from it stops
+the old daemon, waits for its Chrome to close, and starts its own. Other sessions lose any command in
+flight, and their tabs reopen on their next command. An older CLI gets `daemon_outdated` from a newer
+daemon and never replaces it.
 
 From a checkout:
 
@@ -96,7 +105,9 @@ npm run build            # dist/, which `import "patchrome"` and the packed tarb
 ```
 
 A checkout's CLI runs `src/` and its library runs `dist/`, so they report different builds and cannot
-share a daemon: stop one's daemon before using the other.
+share a daemon: stop one's daemon before using the other. A checkout CLI replaces a daemon started from
+older sources of the same checkout, but never a released one, and a release never replaces a checkout's
+daemon.
 
 ### Give it to your agents
 
@@ -114,8 +125,9 @@ loop, locators, the error codes, and the rules: never touch another session's ta
 from their files, and hand CAPTCHAs to a person. A table in it sends the agent to one file in
 [`references/`](skills/patchrome/references) per kind of task: the full command list, scraping,
 scripting, logins, iframes and CAPTCHAs, and debugging a local app. Those files cost nothing until
-read. A unit test keeps SKILL.md under 6 KB, every reference linked from it and none linking onward. Its `allowed-tools` grants `Bash(patchrome:*)`, so
-agents that honour it run browser commands without a permission prompt.
+read. A unit test keeps SKILL.md under 6 KB, every reference linked from it and none linking onward. Its `allowed-tools` grants
+`Bash(npx -y patchrome@latest:*)`, so agents that honour it run browser commands without a permission
+prompt.
 
 ## How it works
 
@@ -236,7 +248,7 @@ closed set:
 | `timeout` | the element or page did not arrive in time | snapshot, or raise `--timeout-ms` |
 | `navigation_failed` | DNS, TLS or connection failure | check the URL |
 | `daemon_unreachable` | the daemon is down or did not start | `patchrome daemon logs` |
-| `daemon_outdated` | the daemon was started by another patchrome build | `patchrome daemon stop` when no agent is browsing |
+| `daemon_outdated` | the daemon was started by a newer or unrelated patchrome build | `npx -y patchrome@latest`, or `patchrome daemon stop` when no agent is browsing |
 | `bad_args` | wrong usage, or a JS error in `eval` | read the message |
 | `unsupported_in_stealth` | the command needs a debug profile | rerun with `--profile debug` |
 | `copy_denied` | the person did not approve a login copy | approve the prompt, or run the command yourself |
@@ -307,6 +319,8 @@ patchrome session history
 # patchrome session tty-s003: 3 steps, 2026-09-13T14:50:02.114Z to 2026-09-13T14:50:09.870Z
 # Lines starting with `# check:` need a look before this runs unattended.
 set -eu
+# The latest release replaces an older daemon; set PATCHROME_CLI=patchrome to run an installed CLI instead.
+patchrome() { command ${PATCHROME_CLI:-npx -y patchrome@latest} "$@"; }
 export PATCHROME_SESSION="${PATCHROME_SESSION:-replay-$$}"
 
 patchrome open https://shop.example/login
@@ -339,8 +353,8 @@ Requests for one session run in order, and requests for different sessions (`--s
 response, and they do not hold up the requests behind them. `--bail` stops at the first failure and
 runs no later lines. The exit code is 0 when every request succeeded, 1 otherwise. Kept open as a
 coprocess, one pipe answers a program's commands with no process start per step. 50 `eval`s through
-one pipe took 0.23 s in total on an M-series Mac, against 0.06 s per CLI call from an installed package
-and 0.10 s from a checkout.
+one pipe took 0.23 s in total on an M-series Mac, against 0.06 s per CLI call from an installed package,
+0.10 s from a checkout and 0.4 s through `npx -y patchrome@latest`.
 
 **Node library.** The same requests, without a child process:
 

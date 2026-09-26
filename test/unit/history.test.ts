@@ -109,6 +109,8 @@ describe("formatHistory", () => {
         "# patchrome session s1: 2 steps, 2026-09-13T10:00:00.000Z to 2026-09-13T11:00:00.000Z",
         "# Lines starting with `# check:` need a look before this runs unattended.",
         "set -eu",
+        "# The latest release replaces an older daemon; set PATCHROME_CLI=patchrome to run an installed CLI instead.",
+        'patchrome() { command ${PATCHROME_CLI:-npx -y patchrome@latest} "$@"; }',
         'export PATCHROME_SESSION="${PATCHROME_SESSION:-replay-$$}"',
         'export PATCHROME_PROFILE="${PATCHROME_PROFILE:-debug}"',
         "",

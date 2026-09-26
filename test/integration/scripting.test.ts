@@ -159,7 +159,7 @@ describe("scripting", () => {
     expect(replayed.exitCode).toBe(0);
     expect(replayed.output.at(-1)).toMatchObject({ ok: true, data: { text: "hello cy" } });
 
-    // The sh export runs as a script with patchrome on PATH.
+    // The sh export runs as a script with patchrome on PATH, which PATCHROME_CLI picks over the npm registry.
     const binDir = join(home, "bin");
     mkdirSync(binDir, { recursive: true });
     symlinkSync(binPath, join(binDir, "patchrome"));
@@ -172,7 +172,14 @@ describe("scripting", () => {
       execFile(
         "sh",
         [scriptPath],
-        { env: { ...env, PATH: `${binDir}:${process.env.PATH}`, PATCHROME_SESSION: "sh-replay" } },
+        {
+          env: {
+            ...env,
+            PATH: `${binDir}:${process.env.PATH}`,
+            PATCHROME_CLI: "patchrome",
+            PATCHROME_SESSION: "sh-replay",
+          },
+        },
         (err, stdout, stderr) => resolve({ code: err ? Number(err.code) : 0, stdout, stderr }),
       );
     });

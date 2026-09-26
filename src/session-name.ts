@@ -35,7 +35,8 @@ export function resolveSessionName(env: NodeJS.ProcessEnv, startPid: number, loo
   for (let depth = 0; depth < 32 && pid > 1; depth++) {
     const info = lookup(pid);
     if (!info) break;
-    const commandName = info.command.split("/").pop()?.replace(/^-/, "") ?? "";
+    // npx retitles itself "npm exec <package>", which ps reports as its command.
+    const commandName = info.command.split("/").pop()?.replace(/^-/, "").split(" ")[0] ?? "";
     const hasTty = info.tty !== "" && info.tty !== "??" && info.tty !== "?";
     if (hasTty) return `tty-${info.tty.replace(/^\/dev\//, "")}`;
     if (!shellCommands.has(commandName)) return `pid-${info.pid}`;
