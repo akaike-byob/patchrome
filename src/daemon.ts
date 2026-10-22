@@ -19,6 +19,7 @@ import { appendHistoryStep, historyFileName, isReplayable, replayStep } from "./
 import {
   approvalBundlesDirFrom,
   auditLogPathFrom,
+  downloadsDirOverrideFrom,
   idleMsFrom,
   isTestHeadlessFrom,
   profilePaths,
@@ -95,6 +96,8 @@ export async function runDaemon(
     isHeadless,
     // macOS Chrome keeps running with no window open; Windows and Linux Chrome quit with their last one.
     chromeQuitsWithLastWindow: !isHeadless && hostPlatform !== "macos",
+    downloadsDirOverride: downloadsDirOverrideFrom(env),
+    log,
     trustedSpkiHashes: (options.trustedCertificates ?? []).map(spkiHashOf),
   });
   const proxy = new ProxyRouting({

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -14,6 +14,7 @@ import {
   type Worker,
 } from "patchright";
 import { chromeUserDataDirFrom } from "./chrome-profiles.ts";
+import { DownloadsFolder } from "./downloads.ts";
 import { keepFocusDuring } from "./focus.ts";
 import { CommandError } from "./protocol.ts";
 import type { HostPlatform } from "./host-platform.ts";
@@ -118,6 +119,9 @@ export class PatchrightEngine implements BrowserEngine {
   #isHeadless: boolean;
   #chromeQuitsWithLastWindow: boolean;
   #trustedSpkiHashes: string[];
+  #downloadsDirOverride: string | undefined;
+  #log: (line: string) => void;
+  #downloadsFolder: DownloadsFolder | undefined;
   // Chrome's startup tab, or the one closePage opened to keep Chrome alive. The next background tab reuses
   // it, and any other tab closes it, so no session sees a stray blank tab next to its own.
   #blankPage: Page | undefined;
@@ -129,17 +133,23 @@ export class PatchrightEngine implements BrowserEngine {
     chromeHost,
     isHeadless,
     chromeQuitsWithLastWindow,
+    downloadsDirOverride,
+    log,
     trustedSpkiHashes = [],
   }: {
     chromeHost: ChromeHost;
     isHeadless: boolean;
     chromeQuitsWithLastWindow: boolean;
+    downloadsDirOverride: string | undefined;
+    log: (line: string) => void;
     trustedSpkiHashes?: string[];
   }) {
     this.#chromeHost = chromeHost;
     this.#isHeadless = isHeadless;
     this.#chromeQuitsWithLastWindow = chromeQuitsWithLastWindow;
     this.#trustedSpkiHashes = trustedSpkiHashes;
+    this.#downloadsDirOverride = downloadsDirOverride;
+    this.#log = log;
   }
 
   async launch(chromeProfileDir: string, mode: ProfileMode): Promise<void> {
@@ -180,6 +190,13 @@ export class PatchrightEngine implements BrowserEngine {
     if (!browser) throw new Error("persistent context exposed no browser for a browser-level CDP session");
     this.#browserCdp = await browser.newBrowserCDPSession();
     this.#context = context;
+    this.#downloadsFolder = new DownloadsFolder(
+      this.#downloadsDirOverride ?? (await this.#userDownloadsDir()),
+      chromeProfileDir,
+      this.#browserCdp,
+      this.#log,
+    );
+    await this.#downloadsFolder.start();
     // A persistent launch always opens a window with one blank tab; Chrome without a window never reports ready.
     this.#blankPage = context.pages()[0];
     const { id } = await this.#browserCdp.send("Extensions.loadUnpacked", {
@@ -293,6 +310,13 @@ export class PatchrightEngine implements BrowserEngine {
 
   async createIsolatedContext(): Promise<string> {
     const { browserContextId } = await this.#requireBrowserCdp().send("Target.createBrowserContext", {});
+    if (!this.#downloadsFolder) throw new Error("engine not launched");
+    try {
+      await this.#downloadsFolder.watchContext(browserContextId);
+    } catch (err) {
+      await this.disposeIsolatedContext(browserContextId).catch(() => {});
+      throw err;
+    }
     return browserContextId;
   }
 
@@ -424,6 +448,16 @@ export class PatchrightEngine implements BrowserEngine {
         return { channel: "chrome" };
       case "windows":
         return { executablePath: (await this.#requireWindowsChrome()).launcherPath };
+    }
+  }
+
+  async #userDownloadsDir(): Promise<string> {
+    switch (this.#chromeHost) {
+      case "local":
+        return join(homedir(), "Downloads");
+      case "windows":
+        // %LOCALAPPDATA% is %USERPROFILE%\AppData\Local.
+        return join(dirname(dirname((await this.#requireWindowsChrome()).found.localAppDataDir)), "Downloads");
     }
   }
 

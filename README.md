@@ -473,6 +473,13 @@ Limits:
 - IndexedDB values that are Blobs, Maps or Sets are not copied; Dates and binary arrays are.
 - `PATCHROME_CHROME_USER_DATA_DIR` points at another Chrome, such as Chrome Beta.
 
+### Downloads
+
+A file downloaded in any session, isolated ones included, lands in your Downloads folder under the
+name the site gave it. A name already taken gets a number, as in `report (1).csv`, so no file is
+overwritten. On WSL the folder is the Windows user's Downloads. `PATCHROME_DOWNLOADS_DIR` sets
+another absolute path.
+
 ### Proxies
 
 A profile can send chosen sites through HTTPS proxies, each with its own username and password:

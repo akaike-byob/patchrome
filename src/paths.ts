@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { CommandError } from "./protocol.ts";
 
@@ -85,4 +85,13 @@ export function idleMsFrom(env: NodeJS.ProcessEnv): number {
     throw new CommandError("bad_args", `PATCHROME_IDLE_MS must be a positive integer, got ${raw}`);
   }
   return idleMs;
+}
+
+// Unset means the user's own Downloads folder. Tests point it at a scratch folder.
+export function downloadsDirOverrideFrom(env: NodeJS.ProcessEnv): string | undefined {
+  const raw = env.PATCHROME_DOWNLOADS_DIR;
+  if (raw === undefined || raw === "") return undefined;
+  if (!isAbsolute(raw))
+    throw new CommandError("bad_args", `PATCHROME_DOWNLOADS_DIR must be an absolute path, got ${raw}`);
+  return raw;
 }

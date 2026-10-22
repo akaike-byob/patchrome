@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "patchright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { makeHome, makeTestChrome, startFixtureServer, type FixtureServer } from "./helpers.ts";
+import { setTimeout as sleep } from "node:timers/promises";
+import { makeHome, makeTestChrome, runCli, startFixtureServer, stopDaemon, type FixtureServer } from "./helpers.ts";
 
 // Playwright names files to Chrome by path. On WSL those are Linux paths the Windows Chrome opens only after
 // the relay rewrites them, so this drives Chrome the way the daemon launches it.
@@ -65,5 +66,43 @@ describe("files between this machine and Chrome", () => {
     const saved = join(disk, "saved.csv");
     await download.saveAs(saved);
     expect(readFileSync(saved, "utf8")).toBe("sku,price\na1,10\n");
+  });
+});
+
+describe("downloads from a patchrome tab", () => {
+  let fixture: FixtureServer;
+  const home = makeHome("downloads");
+  const downloadsDir = join(home, "downloads");
+
+  beforeAll(async () => {
+    fixture = await startFixtureServer();
+  });
+
+  afterAll(async () => {
+    await stopDaemon(home);
+    await fixture.close();
+  });
+
+  async function readOnceSaved(path: string): Promise<string> {
+    for (let attempt = 0; attempt < 50 && !existsSync(path); attempt++) await sleep(100);
+    return readFileSync(path, "utf8");
+  }
+
+  it("keeps the file under its own name in the downloads folder", async () => {
+    expect((await runCli(home, "shared", ["open", `${fixture.origin}/files`])).json.ok).toBe(true);
+    expect((await runCli(home, "shared", ["click", "--selector", "#report"])).json.ok).toBe(true);
+    expect(await readOnceSaved(join(downloadsDir, "report.csv"))).toBe("sku,price\na1,10\n");
+  });
+
+  it("saves an isolated session's download to the same folder", async () => {
+    expect((await runCli(home, "sealed", ["open", "--isolated", `${fixture.origin}/files`])).json.ok).toBe(true);
+    expect((await runCli(home, "sealed", ["click", "--selector", "#report"])).json.ok).toBe(true);
+    expect(await readOnceSaved(join(downloadsDir, "report (1).csv"))).toBe("sku,price\na1,10\n");
+  });
+
+  it("leaves nothing behind in the staging folder", async () => {
+    const stagingRoot = join(downloadsDir, ".patchrome-downloading");
+    const [stagingDir] = readdirSync(stagingRoot);
+    expect(readdirSync(join(stagingRoot, stagingDir ?? ""))).toEqual([]);
   });
 });

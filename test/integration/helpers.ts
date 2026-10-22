@@ -137,7 +137,16 @@ export function runCli(
     execFile(
       process.execPath,
       [binPath, ...(isJson ? ["--json"] : []), "--session", session, ...args],
-      { env: { ...process.env, PATCHROME_HOME: home, CLAUDE_CODE_SESSION_ID: "", ...extraEnv }, timeout: 110_000 },
+      {
+        env: {
+          ...process.env,
+          PATCHROME_HOME: home,
+          PATCHROME_DOWNLOADS_DIR: join(home, "downloads"),
+          CLAUDE_CODE_SESSION_ID: "",
+          ...extraEnv,
+        },
+        timeout: 110_000,
+      },
       (err, stdout, stderr) => {
         const exitCode = err && typeof err.code === "number" ? err.code : err ? 1 : 0;
         let json: CliResult["json"] = { ok: false };
@@ -158,7 +167,7 @@ export async function startDaemonAnsweringCopies(home: string, answer: ApprovalA
   const asked: string[] = [];
   await runDaemon(
     "stealth",
-    { ...process.env, PATCHROME_HOME: home },
+    { ...process.env, PATCHROME_HOME: home, PATCHROME_DOWNLOADS_DIR: join(home, "downloads") },
     {
       prompts: {
         approval: "prompt",
@@ -185,7 +194,7 @@ export async function startDaemonTrusting(
   const exited = new Promise<void>((resolve) => (markExited = resolve));
   await runDaemon(
     "stealth",
-    { ...process.env, PATCHROME_HOME: home },
+    { ...process.env, PATCHROME_HOME: home, PATCHROME_DOWNLOADS_DIR: join(home, "downloads") },
     {
       prompts: { approval: "unprompted", unpromptedReason: "test", async notify() {} },
       exitProcess: () => markExited(),
