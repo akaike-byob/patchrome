@@ -42,6 +42,7 @@ import { checkExitAddress, defaultIpEchoUrl, isSameTimeZone, parseIpEchoUrl } fr
 import type { ProxyRouting } from "./proxy-routing.ts";
 import {
   builtInRoutes,
+  hostPortOf,
   isBuiltInRoute,
   parseProxyName,
   parseProxyServer,
@@ -51,6 +52,7 @@ import {
   routeOf,
   ruleForHost,
   rulesInMatchOrder,
+  schemeOf,
   type ProxyConfig,
   type ProxyRule,
 } from "./proxy-rules.ts";
@@ -1072,11 +1074,13 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
         );
       if (username === undefined && password !== undefined)
         throw new CommandError("bad_args", `proxy ${name} has a password but no --username`);
-      const sharing = ctx.proxy.config().proxies.find((proxy) => proxy.server === server && proxy.name !== name);
+      const sharing = ctx.proxy
+        .config()
+        .proxies.find((proxy) => hostPortOf(proxy.server) === hostPortOf(server) && proxy.name !== name);
       if (sharing !== undefined)
         throw new CommandError(
           "bad_args",
-          `proxy ${sharing.name} already uses ${server}`,
+          `proxy ${sharing.name} already uses ${hostPortOf(server)}`,
           `Chrome tells proxies apart only by host and port; replace it with \`patchrome proxy add ${sharing.name} ...\``,
         );
       const isReplacing = ctx.proxy.config().proxies.some((proxy) => proxy.name === name);
@@ -1101,6 +1105,11 @@ export async function runCommand(ctx: CommandContext, call: CommandCall): Promis
           rules.length === 0
             ? `no rule uses ${name} yet: \`patchrome proxy rule add <host> ${name}\``
             : `rules via ${name}: ${rules.map((rule) => rule.pattern).join(" ")}`,
+          ...(schemeOf(server) === "http"
+            ? [
+                `warning: ${name} is an http proxy; ${username === undefined ? "every site name it carries crosses" : "its password and every site name it carries cross"} the network unencrypted`,
+              ]
+            : []),
         ],
         fields: {
           name,

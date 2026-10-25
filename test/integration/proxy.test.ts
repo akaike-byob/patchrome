@@ -116,10 +116,10 @@ describe("proxy rules", () => {
     expect(JSON.parse(readFileSync(join(home, "stealth", "proxy-secrets.json"), "utf8")).bob).toBe("bob-secret");
   });
 
-  it("refuses plain http and socks proxies, and credentials inside the URL", async () => {
+  it("refuses socks proxies, credentials inside the URL, and a second name for one host and port", async () => {
     for (const server of [
-      `http://127.0.0.1:${alice.port}`,
       `socks5://127.0.0.1:${alice.port}`,
+      `http://127.0.0.1:${alice.port}`,
       `https://u:p@127.0.0.1:${alice.port}`,
     ]) {
       const refused = await run(["proxy", "add", "other", server]);
@@ -212,6 +212,38 @@ describe("proxy rules", () => {
       PATCHROME_IP_ECHO_URL: "https://echo.proxy.test/echo",
     });
     expect(refused.json.error?.code).toBe("proxy_auth_failed");
+  });
+
+  it("routes through an http proxy, warning that it is unencrypted", async () => {
+    const dave = await startTestProxy(certificate, sites, { username: "dave", password: "dave-secret" }, "http");
+    try {
+      const added = await runCli(
+        home,
+        session,
+        ["proxy", "add", "dave", `http://127.0.0.1:${dave.port}`, "--username", "dave", "--password-env", "DAVE_PASS"],
+        { DAVE_PASS: "dave-secret" },
+        false,
+      );
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toContain(
+        "warning: dave is an http proxy; its password and every site name it carries cross the network unencrypted",
+      );
+      expect((await run(["proxy", "rule", "add", "dave.proxy.test", "dave"])).json.ok).toBe(true);
+      expect((await run(["goto", "https://dave.proxy.test/"])).json).toMatchObject({
+        ok: true,
+        data: { title: "dave.proxy.test" },
+      });
+      expect(carrierOf([alice, bob, dave], lastRequestTo("dave.proxy.test"))).toBe(dave);
+      const tested = await run(["proxy", "test", "https://dave.proxy.test/"], {
+        PATCHROME_IP_ECHO_URL: "https://echo.proxy.test/echo",
+      });
+      expect(tested.json.data).toMatchObject({ route: "proxy", proxy: "dave", exitIp: "203.0.113.7" });
+      expect(carrierOf([alice, bob, dave], lastRequestTo("echo.proxy.test"))).toBe(dave);
+    } finally {
+      await run(["proxy", "rule", "remove", "dave.proxy.test"]);
+      await run(["proxy", "remove", "dave"]);
+      dave.close();
+    }
   });
 
   it("keeps a proxy that rules use, and keeps isolated tabs away from rules they cannot follow", async () => {

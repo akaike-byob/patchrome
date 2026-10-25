@@ -4,6 +4,7 @@ import { z } from "zod";
 import { CommandError } from "./protocol.ts";
 import {
   emptyProxyConfig,
+  hostPortOf,
   isBuiltInRoute,
   parseProxyName,
   parseProxyServer,
@@ -47,14 +48,14 @@ export async function readStoredProxies(paths: ProxyStorePaths): Promise<StoredP
   return { config, passwords };
 }
 
-// Every name, server and pattern is checked again on load, so a hand edit cannot slip an http proxy or a
+// Every name, server and pattern is checked again on load, so a hand edit cannot slip a socks proxy or a
 // rule to a missing proxy past the CLI's checks.
 export function checkConsistent(config: ProxyConfig, passwords: Record<string, string>): void {
   const names = new Set<string>();
   for (const proxy of config.proxies) {
     parseProxyName(proxy.name);
     if (parseProxyServer(proxy.server) !== proxy.server)
-      throw new Error(`proxy ${proxy.name} server ${proxy.server} is not in https://host:port form`);
+      throw new Error(`proxy ${proxy.name} server ${proxy.server} is not in scheme://host:port form`);
     if (names.has(proxy.name)) throw new Error(`proxy ${proxy.name} appears twice`);
     names.add(proxy.name);
     const hasPassword = passwords[proxy.name] !== undefined;
@@ -67,10 +68,12 @@ export function checkConsistent(config: ProxyConfig, passwords: Record<string, s
     if (!names.has(name)) throw new Error(`a password is stored for proxy ${name}, which does not exist`);
   const servers = new Map<string, string>();
   for (const proxy of config.proxies) {
-    const other = servers.get(proxy.server);
-    // Chrome names a proxy only by host and port when it asks for a password, so two names cannot share one.
-    if (other !== undefined) throw new Error(`proxies ${other} and ${proxy.name} use the same server ${proxy.server}`);
-    servers.set(proxy.server, proxy.name);
+    const hostPort = hostPortOf(proxy.server);
+    const other = servers.get(hostPort);
+    // Chrome names a proxy only by host and port when it asks for a password, so two names cannot share one,
+    // even with different schemes.
+    if (other !== undefined) throw new Error(`proxies ${other} and ${proxy.name} use the same server ${hostPort}`);
+    servers.set(hostPort, proxy.name);
   }
   const patterns = new Set<string>();
   for (const rule of config.rules) {

@@ -7,7 +7,7 @@ import { connect, type AddressInfo, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// HTTPS proxies with basic auth and the sites behind them. Every *.proxy.test host resolves only inside the
+// HTTPS and HTTP proxies with basic auth and the sites behind them. Every *.proxy.test host resolves only inside the
 // proxies, so a request Chrome sends straight to the site fails DNS.
 
 export interface TestCertificate {
@@ -61,10 +61,13 @@ export interface TestSites {
 
 // Chrome resets proxy and site connections whenever it drops a tunnel, on a rule change or a closing tab.
 // Node turns a reset with no listener into an uncaught exception, which fails the run around passing tests.
-const ignoreClientResets = (server: HttpsServer | ReturnType<typeof createSecureServer>): void => {
+const ignoreClientResets = (
+  server: HttpsServer | ReturnType<typeof createHttpServer> | ReturnType<typeof createSecureServer>,
+): void => {
   server.on("tlsClientError", () => {});
   server.on("clientError", () => {});
   server.on("secureConnection", (socket) => socket.on("error", () => socket.destroy()));
+  server.on("connection", (socket) => socket.on("error", () => socket.destroy()));
 };
 
 const listen = async (server: Server | HttpsServer | ReturnType<typeof createSecureServer>): Promise<number> =>
@@ -102,15 +105,17 @@ export async function startTestProxy(
   { key, cert }: TestCertificate,
   sites: TestSites,
   credentials: { username: string; password: string } | undefined,
+  scheme: "https" | "http" = "https",
 ): Promise<TestProxy> {
   const expected =
     credentials === undefined
       ? undefined
       : `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`;
   const proxy: TestProxy = { port: 0, upstreamPorts: new Set(), connects: [], refusedAuth: 0, close: () => {} };
-  const server = createHttpsServer({ key, cert }, (_req: IncomingMessage, res: ServerResponse) => {
+  const refuseRequest = (_req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(405).end();
-  });
+  };
+  const server = scheme === "https" ? createHttpsServer({ key, cert }, refuseRequest) : createHttpServer(refuseRequest);
   server.on("connect", (req: IncomingMessage, socket, head: Buffer) => {
     if (expected !== undefined && req.headers["proxy-authorization"] !== expected) {
       proxy.refusedAuth += 1;
