@@ -39,7 +39,7 @@ snapshot line), `--text <text>`, `--label <form label>` or `--selector <css>`, w
 | Scraping: JSON API responses, `extract` rows, globs, HAR, blocking or mocking requests | [references/scraping.md](references/scraping.md) |
 | A repeatable script, `session history`, `pipe`, the Node library, sh/Python/Go callers | [references/scripting.md](references/scripting.md) |
 | A site needs sign-in: `login`, `state import`, `state save`/`load`, a separate account | [references/logins.md](references/logins.md) |
-| Sites through an HTTPS proxy: `proxy add`, `proxy rule`, `proxy test` | [references/proxies.md](references/proxies.md) |
+| Sites through an HTTPS or HTTP proxy: `proxy add`, `proxy rule`, `proxy test` | [references/proxies.md](references/proxies.md) |
 | iframes, closed shadow roots, canvas, CAPTCHAs, bot-wall interstitials | [references/hard-pages.md](references/hard-pages.md) |
 | Debugging your own localhost app: console, page errors, traces, CDP | [references/debugging.md](references/debugging.md) |
 

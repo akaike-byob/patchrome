@@ -78,7 +78,7 @@ state
   state export <site> <file>
 
 proxies (every session in the profile shares them)
-  proxy add <name> <https://host:port> [--username <user> --password-stdin | --password-env <VAR>]
+  proxy add <name> <http(s)://host:port> [--username <user> --password-stdin | --password-env <VAR>]
   proxy remove <name>
   proxy list
   proxy rule add <host|*.domain|*> <proxy|direct|block>
@@ -374,7 +374,7 @@ export function parseCli(
           command = "proxy-add";
           args = {
             name: need(1, "name"),
-            server: need(2, "https://host:port"),
+            server: need(2, "https://host:port or http://host:port"),
             username: values.username,
             password,
             passwordFromStdin: values["password-stdin"],

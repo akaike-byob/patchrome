@@ -45,7 +45,7 @@ _patchrome() {
     'login:sign in by hand in a visible tab'
     'cookies:list cookies'
     'state:save, load, import or export login state'
-    'proxy:route hosts through https proxies'
+    'proxy:route hosts through https or http proxies'
     'console:console messages (debug profile)'
     'errors:page errors (debug profile)'
     'trace:record a Playwright trace (debug profile)'

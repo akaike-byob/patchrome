@@ -204,7 +204,7 @@ Global flags come before the command: `--json`, `--timeout-ms <n>` (default 3000
 | `state save <file>`, `state load <file>` | cookies and localStorage, in Playwright's storageState format |
 | `state import <site> [--from <chrome-profile>]` | one site's login from your everyday Chrome: cookies, localStorage, IndexedDB |
 | `state export <site> <file>` | one site's login from this profile to a file, to load on another machine |
-| `proxy add <name> <https://host:port> [--username <user> --password-stdin\|--password-env <VAR>]` | add or replace an HTTPS proxy for the profile |
+| `proxy add <name> <http(s)://host:port> [--username <user> --password-stdin\|--password-env <VAR>]` | add or replace an HTTPS or HTTP proxy for the profile |
 | `proxy rule add <host\|*.domain\|*> <proxy\|direct\|block>`, `proxy rule remove\|list` | route hosts through a proxy, straight to the site, or nowhere; see [Proxies](#proxies) |
 | `proxy test <url>`, `proxy list`, `proxy remove <name>`, `proxy clear` | check a route and its exit IP; list, remove or clear proxies |
 | `console [--level <level>] [--follow]` | debug profile: your tabs' console messages; `--follow` streams them |
@@ -475,7 +475,7 @@ Limits:
 
 ### Proxies
 
-A profile can send chosen sites through HTTPS proxies, each with its own username and password:
+A profile can send chosen sites through HTTPS or HTTP proxies, each with its own username and password:
 
 ```bash
 printf %s "$DE_PROXY_PASS" | patchrome proxy add de https://gw.example.net:8000 --username alice --password-stdin
@@ -495,8 +495,10 @@ prompts through `webRequest.onAuthRequired`, so the persistent profile, its logi
 they are. The PAC script is mandatory, so a script that fails stops requests instead of sending them direct. While
 rules exist, WebRTC may not use UDP outside the proxy, so a page cannot learn this machine's address over STUN.
 
-- Only `https://` proxies are accepted. Chrome then sends the password and every CONNECT host name inside TLS
-  to the proxy. Chrome cannot authenticate to a SOCKS5 proxy at all.
+- `https://` and `http://` proxies are accepted. To an `https://` proxy, Chrome sends the password and every
+  CONNECT host name inside TLS. To an `http://` proxy, both cross the network in clear text, and `proxy add`
+  prints a warning. Prefer `https://` when the provider offers it. SOCKS5 is refused: Chrome cannot
+  authenticate to a SOCKS5 proxy at all.
 - Proxies and rules live in `~/.cache/patchrome/<profile>/proxies.json`. Passwords live in
   `proxy-secrets.json` next to it, mode 0600, and reach Chrome only in memory. `--password-stdin` and
   `--password-env <VAR>` keep them out of `ps` and shell history.
@@ -589,7 +591,7 @@ terms. You are responsible for what your agents do with it.
 - **M5, scripting** (done): locators, `--inline` and `--out`, `network get --url`, `pipe`, session
   history with refs rewritten as locators, the Node library, and examples in sh, Python, Node and Go.
 - **WSL** (done): the Windows Chrome through a pipe relay, and `state import` from it.
-- **Proxies** (done): HTTPS proxies with passwords, host rules through a bundled extension, `proxy test`.
+- **Proxies** (done): HTTPS and HTTP proxies with passwords, host rules through a bundled extension, `proxy test`.
 
 ## Development
 

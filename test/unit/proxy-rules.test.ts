@@ -35,11 +35,13 @@ const config: ProxyConfig = {
 };
 
 describe("proxy names, servers and patterns", () => {
-  it("takes only https proxy servers, normalized to https://host:port", () => {
+  it("takes https and http proxy servers, normalized to scheme://host:port", () => {
     expect(parseProxyServer("https://gw.example.net")).toBe("https://gw.example.net:443");
     expect(parseProxyServer("https://GW.example.net:8000/")).toBe("https://gw.example.net:8000");
-    expect(() => parseProxyServer("http://gw.example.net:8000")).toThrow("patchrome takes only https proxies");
-    expect(() => parseProxyServer("socks5://gw.example.net:1080")).toThrow("patchrome takes only https proxies");
+    expect(parseProxyServer("http://gw.example.net")).toBe("http://gw.example.net:80");
+    expect(parseProxyServer("http://gw.example.net:3128")).toBe("http://gw.example.net:3128");
+    expect(() => parseProxyServer("socks5://gw.example.net:1080")).toThrow("takes only https and http proxies");
+    expect(() => parseProxyServer("ftp://gw.example.net:21")).toThrow("takes only https and http proxies");
     expect(() => parseProxyServer("https://alice:secret@gw.example.net")).toThrow("must not contain credentials");
     expect(() => parseProxyServer("https://gw.example.net/path")).toThrow("has a path");
     expect(() => parseProxyServer("gw.example.net:8000")).toThrow("is not a URL");
@@ -144,6 +146,20 @@ describe("the PAC script Chrome runs", () => {
       { challenger: "gw.example.net:8000", username: "alice", password: "secret" },
     ]);
   });
+
+  it("names an http proxy with PROXY and its default port 80", () => {
+    const plain = proxyRulesForChrome(
+      {
+        proxies: [{ name: "lab", server: "http://lab.local:80", username: "bob" }],
+        rules: [{ pattern: "*", via: "lab" }],
+      },
+      { lab: "secret" },
+    );
+    expect(runInNewContext(`${plain?.pacScript}\nFindProxyForURL("https://a.test/", "a.test")`)).toBe(
+      "PROXY lab.local:80",
+    );
+    expect(plain?.credentials).toEqual([{ challenger: "lab.local:80", username: "bob", password: "secret" }]);
+  });
 });
 
 describe("stored proxies", () => {
@@ -169,7 +185,8 @@ describe("stored proxies", () => {
 
   it("rejects hand edits the CLI would have refused, naming the file", async () => {
     const edits: Array<[unknown, Record<string, string>, string]> = [
-      [{ proxies: [{ name: "p", server: "http://gw:80" }], rules: [] }, {}, "patchrome takes only https proxies"],
+      [{ proxies: [{ name: "p", server: "socks5://gw:1080" }], rules: [] }, {}, "takes only https and http proxies"],
+      [{ proxies: [{ name: "p", server: "http://gw" }], rules: [] }, {}, "is not in scheme://host:port form"],
       [{ proxies: [], rules: [{ pattern: "a.test", via: "gone" }] }, {}, "routes via gone, which is not a proxy"],
       [
         { proxies: [{ name: "p", server: "https://gw:443", username: "u" }], rules: [] },
@@ -187,6 +204,17 @@ describe("stored proxies", () => {
         },
         {},
         "use the same server",
+      ],
+      [
+        {
+          proxies: [
+            { name: "a", server: "https://gw:8080" },
+            { name: "b", server: "http://gw:8080" },
+          ],
+          rules: [],
+        },
+        {},
+        "use the same server gw:8080",
       ],
       [{ proxies: [], rules: [], extra: true }, {}, "unknown keys extra"],
     ];

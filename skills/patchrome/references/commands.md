@@ -104,7 +104,7 @@ Rules apply to every session in the profile; change them only when the user asks
 
 | Command | Does |
 |---|---|
-| `proxy add <name> <https://host:port> [--username <user> --password-stdin \| --password-env <VAR>]` | add or replace an HTTPS proxy; the password never goes in the words |
+| `proxy add <name> <http(s)://host:port> [--username <user> --password-stdin \| --password-env <VAR>]` | add or replace an HTTPS or HTTP proxy; the password never goes in the words |
 | `proxy remove <name>`, `proxy list` | a proxy no rule uses; every proxy with its rules |
 | `proxy rule add <host\|*.domain\|*> <proxy\|direct\|block>` | route matching hosts; exact host, then longest `*.domain`, then `*` |
 | `proxy rule remove <pattern>`, `proxy rule list` | rules in the order they are checked |

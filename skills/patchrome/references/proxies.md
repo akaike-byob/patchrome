@@ -1,6 +1,6 @@
 # Proxies
 
-A profile can send chosen sites through HTTPS proxies. Rules belong to the profile, not your session:
+A profile can send chosen sites through HTTPS or HTTP proxies. Rules belong to the profile, not your session:
 every agent browsing that profile goes through them, and a change applies to their next request.
 Only add, change or remove a proxy or rule when the user asks for it.
 
@@ -10,10 +10,12 @@ Only add, change or remove a proxy or rule when the user asks for it.
 printf %s "$DE_PROXY_PASS" | patchrome proxy add de https://gw.example.net:8000 --username alice --password-stdin
 patchrome proxy add corp https://proxy.corp:3128 --username svc --password-env CORP_PROXY_PASS
 patchrome proxy add open https://10.0.0.5:8443          # a proxy with no password
+patchrome proxy add lab http://10.0.0.6:3128            # an http proxy
 ```
 
-- Only `https://` proxies. `http://` and `socks5://` are refused: they send the password and every
-  site name unencrypted. If the user only has an `http://` endpoint, tell them; do not look for a way round.
+- `https://` and `http://` proxies. `socks5://` is refused: Chrome cannot send it a password.
+- An `http://` proxy sends the password and every site name unencrypted, and `proxy add` prints a
+  warning. Use `https://` when the provider offers both. Tell the user when only `http://` is available.
 - The password never goes in the command's words, where `ps` and shell history keep it. Use
   `--password-env <VAR>` with a variable the user set, or `--password-stdin` from a pipe. In `pipe` and
   the Node library only `--password-env` works. Never echo, print or log a password.

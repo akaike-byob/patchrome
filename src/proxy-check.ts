@@ -1,9 +1,9 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
-import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { connect as netConnect, isIP, type Socket } from "node:net";
+import { connect as tlsConnect } from "node:tls";
 import { CommandError } from "./protocol.ts";
-import { hostPortOf, type ProxyServer } from "./proxy-rules.ts";
+import { hostPortOf, schemeOf, type ProxyServer } from "./proxy-rules.ts";
 
 // Returns the caller's public IP, country and timezone as JSON. PATCHROME_IP_ECHO_URL replaces it.
 export const defaultIpEchoUrl = "https://ipinfo.io/json";
@@ -101,24 +101,24 @@ function resolvedTimeZoneOf(timeZone: string): string | undefined {
   }
 }
 
-// CONNECT through TLS to the proxy, the way Chrome reaches an HTTPS proxy.
-async function openTunnel(options: ExitCheckOptions, echo: URL, deadline: AbortSignal): Promise<TLSSocket> {
+// CONNECT to the proxy, over TLS for an https proxy, the way Chrome reaches it.
+async function openTunnel(options: ExitCheckOptions, echo: URL, deadline: AbortSignal): Promise<Socket> {
   const proxy = options.proxy;
   if (proxy === undefined) throw new Error("openTunnel needs a proxy");
   const server = new URL(proxy.server.server);
   const target = `${echo.hostname}:${echo.port || (echo.protocol === "https:" ? "443" : "80")}`;
-  const socket = tlsConnect({
-    host: server.hostname.replace(/^\[|\]$/g, ""),
-    // URL.port is empty for 443, the scheme's default.
-    port: Number(server.port === "" ? "443" : server.port),
-    servername: serverNameOf(server.hostname),
-    ...caOf(options),
-  });
+  const host = server.hostname.replace(/^\[|\]$/g, "");
+  // hostPortOf fills in the scheme's default port, which URL.port leaves empty.
+  const port = Number(hostPortOf(proxy.server.server).split(":").at(-1));
+  const isTls = schemeOf(proxy.server.server) === "https";
+  const socket = isTls
+    ? tlsConnect({ host, port, servername: serverNameOf(server.hostname), ...caOf(options) })
+    : netConnect({ host, port });
   const onAbort = () => socket.destroy(new Error(`timed out after ${options.timeoutMs} ms`));
   deadline.addEventListener("abort", onAbort, { once: true });
   try {
     await new Promise<void>((resolve, reject) => {
-      socket.once("secureConnect", resolve);
+      socket.once(isTls ? "secureConnect" : "connect", resolve);
       socket.once("error", reject);
     });
     const authorization =
@@ -148,7 +148,7 @@ async function openTunnel(options: ExitCheckOptions, echo: URL, deadline: AbortS
   }
 }
 
-function readConnectStatus(socket: TLSSocket): Promise<number> {
+function readConnectStatus(socket: Socket): Promise<number> {
   return new Promise((resolve, reject) => {
     let head = "";
     const onData = (chunk: Buffer) => {
@@ -189,7 +189,7 @@ function exitCheckError(options: ExitCheckOptions, err: unknown): CommandError {
   return new CommandError(
     "proxy_unreachable",
     `proxy ${options.proxy.server.name} (${hostPortOf(options.proxy.server.server)}) failed: ${message}`,
-    "check the proxy server address and port, and that it serves https",
+    "check the proxy server address and port, and that it serves the scheme its URL names",
   );
 }
 

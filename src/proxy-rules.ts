@@ -9,7 +9,8 @@ export type BuiltInRoute = (typeof builtInRoutes)[number];
 
 export interface ProxyServer {
   name: string;
-  // Always https://host:port: Chrome sends the password and every CONNECT host inside TLS to the proxy.
+  // https://host:port or http://host:port. Over https, Chrome sends the password and every CONNECT host inside
+  // TLS to the proxy; over http, both cross the network in clear text.
   server: string;
   username?: string;
 }
@@ -58,6 +59,12 @@ export function parseProxyName(raw: string): string {
   return raw;
 }
 
+// Socks is left out because Chrome cannot answer a SOCKS proxy's password prompt.
+export const proxySchemes = ["https", "http"] as const;
+export type ProxyScheme = (typeof proxySchemes)[number];
+
+const defaultPortOf: Record<ProxyScheme, string> = { https: "443", http: "80" };
+
 export function parseProxyServer(raw: string): string {
   let url: URL;
   try {
@@ -67,11 +74,12 @@ export function parseProxyServer(raw: string): string {
   } catch {
     throw new CommandError("bad_args", `proxy server ${raw} is not a URL`, "give it as https://host:port");
   }
-  if (url.protocol !== "https:")
+  const scheme = url.protocol.replace(/:$/, "");
+  if (!isProxyScheme(scheme))
     throw new CommandError(
       "bad_args",
-      `proxy server ${raw} uses ${url.protocol.replace(/:$/, "")}; patchrome takes only https proxies`,
-      "an https proxy keeps the password and the sites you visit encrypted on the way to it; ask the provider for its https endpoint",
+      `proxy server ${raw} uses ${scheme}; patchrome takes only https and http proxies`,
+      "give it as https://host:port, or http://host:port",
     );
   if (url.username !== "" || url.password !== "")
     throw new CommandError(
@@ -81,7 +89,18 @@ export function parseProxyServer(raw: string): string {
     );
   if ((url.pathname !== "/" && url.pathname !== "") || url.search !== "" || url.hash !== "")
     throw new CommandError("bad_args", `proxy server ${raw} has a path`, "give it as https://host:port");
-  return `https://${url.hostname}:${url.port === "" ? "443" : url.port}`;
+  return `${scheme}://${url.hostname}:${url.port === "" ? defaultPortOf[scheme] : url.port}`;
+}
+
+function isProxyScheme(value: string): value is ProxyScheme {
+  return (proxySchemes as readonly string[]).includes(value);
+}
+
+// Only for servers parseProxyServer already accepted.
+export function schemeOf(server: string): ProxyScheme {
+  const scheme = new URL(server).protocol.replace(/:$/, "");
+  if (!isProxyScheme(scheme)) throw new Error(`proxy server ${server} uses ${scheme}`);
+  return scheme;
 }
 
 // `example.de` is that host, `*.example.de` its subdomains only, `*` every host.
@@ -142,10 +161,19 @@ export function routeOf(config: ProxyConfig, rule: ProxyRule | undefined): Proxy
   return { kind: "proxy", proxy };
 }
 
-// URL.host drops a default port, and Chrome names a proxy with its port even when it is 443.
+// URL.host drops a default port, and Chrome names a proxy with its port even when it is the default.
 export function hostPortOf(server: string): string {
   const url = new URL(server);
-  return `${url.hostname}:${url.port === "" ? "443" : url.port}`;
+  return `${url.hostname}:${url.port === "" ? defaultPortOf[schemeOf(server)] : url.port}`;
+}
+
+function pacProxyOf(server: string): string {
+  switch (schemeOf(server)) {
+    case "https":
+      return `HTTPS ${hostPortOf(server)}`;
+    case "http":
+      return `PROXY ${hostPortOf(server)}`;
+  }
 }
 
 // Chrome runs this for every request. Unmatched hosts go direct; rules never resolve DNS, which would leak
@@ -157,11 +185,7 @@ export function pacScriptFor(config: ProxyConfig): string {
   for (const rule of rulesInMatchOrder(config.rules)) {
     const route = routeOf(config, rule);
     const result =
-      route.kind === "proxy"
-        ? `HTTPS ${hostPortOf(route.proxy.server)}`
-        : route.kind === "block"
-          ? blockedProxy
-          : "DIRECT";
+      route.kind === "proxy" ? pacProxyOf(route.proxy.server) : route.kind === "block" ? blockedProxy : "DIRECT";
     if (rule.pattern === "*") fallback = result;
     else if (rule.pattern.startsWith("*.")) subdomains.push([rule.pattern.slice(1), result]);
     else exact[rule.pattern] = result;
