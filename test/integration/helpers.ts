@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { LaunchOptions } from "patchright";
 import { afterAll } from "vitest";
 import type { ApprovalAnswer } from "../../src/copy-guard.ts";
-import { runDaemon } from "../../src/daemon.ts";
+import { runDaemon, type ChromeHealthCheck } from "../../src/daemon.ts";
 import { chromeHostFor, type ChromeHost } from "../../src/engine.ts";
 import { detectHostPlatform } from "../../src/host-platform.ts";
 import {
@@ -193,6 +193,41 @@ export async function startDaemonTrusting(
     },
   );
   return { exited };
+}
+
+// A daemon in the test process that checks its Chrome on the schedule given. `exited` settles once it shuts down.
+export async function startDaemonCheckingChrome(
+  home: string,
+  chromeHealthCheck: ChromeHealthCheck,
+): Promise<{ exited: Promise<void> }> {
+  let markExited = () => {};
+  const exited = new Promise<void>((resolve) => (markExited = resolve));
+  await runDaemon(
+    "stealth",
+    { ...process.env, PATCHROME_HOME: home },
+    {
+      prompts: { approval: "unprompted", unpromptedReason: "test", async notify() {} },
+      exitProcess: () => markExited(),
+      chromeHealthCheck,
+    },
+  );
+  return { exited };
+}
+
+// The pid of the Chrome browser process a home's daemon runs. Its helper processes carry a --type flag.
+export function chromeBrowserPidsFor(home: string): number[] {
+  switch (chromeHost) {
+    case "local": {
+      const userDataDirFlag = `--user-data-dir=${join(home, "stealth", "chrome-profile")}`;
+      const table = execFileSync("ps", ["-Awwo", "pid=,command="], { encoding: "utf8" });
+      return table
+        .split("\n")
+        .filter((line) => line.includes(userDataDirFlag) && !line.includes("--type="))
+        .map((line) => Number(line.trim().split(/\s+/)[0]));
+    }
+    case "windows":
+      throw new Error("a Windows Chrome runs outside WSL, where Linux signals cannot reach it");
+  }
 }
 
 export async function stopDaemon(home: string): Promise<void> {

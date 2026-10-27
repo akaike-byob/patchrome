@@ -1,12 +1,14 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  chromeBrowserPidsFor,
   chromeHost,
   daemonPidsFor,
   makeHome,
   runCli,
+  startDaemonCheckingChrome,
   startFixtureServer,
   stopDaemon,
   type FixtureServer,
@@ -32,6 +34,10 @@ function launchFailureIn(home: string): { env: NodeJS.ProcessEnv; code: string; 
       };
     }
   }
+}
+
+function readSavedSessions(path: string): string {
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
 describe("daemon lifecycle", () => {
@@ -153,5 +159,58 @@ describe("daemon lifecycle", () => {
     expect(stopped.json).toMatchObject({ ok: true });
     // The stop ends the wait long before its own timeout would.
     expect((await waiting).json.error?.code).toBe("tab_gone");
+  });
+
+  it("answers a command that never finishes, and runs the session's next command", async () => {
+    const hangHome = makeHome("hang");
+    expect((await runCli(hangHome, "s", ["open"])).json).toMatchObject({ ok: true });
+    const hung = await runCli(hangHome, "s", ["--timeout-ms", "1000", "eval", "new Promise(() => {})"]);
+    expect(hung.json.error?.code, hung.stdout).toBe("timeout");
+    expect(hung.json.error?.message).toMatch(/eval did not finish within 26000 ms/);
+    expect((await runCli(hangHome, "s", ["eval", "1 + 1"])).json).toMatchObject({ ok: true, data: { value: 2 } });
+    await runCli(hangHome, "s", ["daemon", "stop"]);
+  });
+
+  it("restarts once its Chrome stops answering, and gives the session its tab back", async () => {
+    const frozenHome = makeHome("frozen-chrome");
+    const { exited } = await startDaemonCheckingChrome(frozenHome, {
+      intervalMs: 500,
+      answerTimeoutMs: 500,
+      missesBeforeRestart: 2,
+    });
+    expect((await runCli(frozenHome, "s", ["open", fixture.origin])).json).toMatchObject({ ok: true });
+    const [chromePid] = chromeBrowserPidsFor(frozenHome);
+    expect(chromePid).toBeDefined();
+    process.kill(chromePid ?? 0, "SIGSTOP");
+    try {
+      await exited;
+    } finally {
+      // A test daemon does not exit the process, so Patchright's exit hook never kills this Chrome.
+      process.kill(chromePid ?? 0, "SIGKILL");
+    }
+    const tabs = await runCli(frozenHome, "s", ["tabs"]);
+    expect(tabs.stdout).toContain(fixture.origin);
+    await runCli(frozenHome, "s", ["daemon", "stop"]);
+  });
+
+  it("ends a daemon that stops answering, with its Chrome, and starts a new one on the next command", async () => {
+    const blockedHome = makeHome("blocked");
+    expect((await runCli(blockedHome, "s", ["open", fixture.origin])).json).toMatchObject({ ok: true });
+    const [daemonPid] = daemonPidsFor(blockedHome);
+    expect(daemonPid).toBeDefined();
+    // A killed daemon saves nothing more, so the tab must be on disk first. Saves trail a change by 100 ms.
+    const savedSessionsPath = join(blockedHome, "stealth", "sessions.json");
+    const savedByMs = Date.now() + 5_000;
+    while (!readSavedSessions(savedSessionsPath).includes(fixture.origin) && Date.now() < savedByMs) await sleep(100);
+    // A stopped process accepts connections but runs nothing, as a blocked event loop does.
+    process.kill(daemonPid ?? 0, "SIGSTOP");
+    const blocked = await runCli(blockedHome, "s", ["--timeout-ms", "1000", "snapshot"]);
+    expect(blocked.json.error?.code, blocked.stdout).toBe("daemon_unreachable");
+    expect(blocked.json.error?.hint).toContain(`ended daemon pid ${daemonPid}`);
+    expect(daemonPidsFor(blockedHome)).toEqual([]);
+    expect(chromeBrowserPidsFor(blockedHome)).toEqual([]);
+    const tabs = await runCli(blockedHome, "s", ["tabs"]);
+    expect(tabs.stdout).toContain(fixture.origin);
+    await runCli(blockedHome, "s", ["daemon", "stop"]);
   });
 });

@@ -14,6 +14,7 @@ import {
   type Worker,
 } from "patchright";
 import { chromeUserDataDirFrom } from "./chrome-profiles.ts";
+import { settleWithin } from "./deadline.ts";
 import { keepFocusDuring } from "./focus.ts";
 import { CommandError } from "./protocol.ts";
 import type { HostPlatform } from "./host-platform.ts";
@@ -87,6 +88,8 @@ export interface BrowserEngine {
   startTrace(): Promise<void>;
   stopTrace(path: string): Promise<void>;
   onClosed(listener: () => void): void;
+  // False when the browser process gives no CDP answer in time, as a frozen Chrome does.
+  isAnswering(timeoutMs: number): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -393,6 +396,20 @@ export class PatchrightEngine implements BrowserEngine {
 
   onClosed(listener: () => void): void {
     this.#closedListeners.push(listener);
+  }
+
+  // Browser.getVersion goes to the browser process alone, so a busy page never makes it slow.
+  async isAnswering(timeoutMs: number): Promise<boolean> {
+    try {
+      await settleWithin(
+        this.#requireBrowserCdp().send("Browser.getVersion"),
+        timeoutMs,
+        () => new Error(`no answer within ${timeoutMs} ms`),
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async close(): Promise<void> {

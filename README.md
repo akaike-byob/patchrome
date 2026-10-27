@@ -155,6 +155,11 @@ you, a terminal --+   (one per command)   (JSON lines)   (one per profile)     (
   `sessions.json`, and after a restart it reopens a session's tabs, same ids and URLs, on that
   session's next command. Form input, scroll position and snapshot refs do not survive. Session
   folders untouched for 7 days are deleted when the daemon starts.
+- **Stuck commands.** A command still running 25 s past its `--timeout-ms` fails with `timeout`, and
+  its session's next command runs. The daemon asks Chrome for its version every 30 s. After 3 checks
+  in a row go unanswered, the daemon restarts. When a command gets no answer at all, the CLI sends
+  the daemon a status request. If that also goes unanswered for 5 s, the CLI kills the daemon and its
+  Chrome. The next command starts a new daemon. Under WSL, the Windows Chrome may outlive that kill.
 - **Tab groups.** Each session's tabs sit in a Chrome tab group titled with the session name, so you
   can see which agent owns which tabs. `session label "checkout flow"` makes the title
   `agent-1: checkout flow`. The colour comes from the name. The daemon loads a small bundled extension
@@ -247,7 +252,7 @@ closed set:
 | `ref_stale` | the page navigated since your last snapshot | `patchrome snapshot` |
 | `timeout` | the element or page did not arrive in time | snapshot, or raise `--timeout-ms` |
 | `navigation_failed` | DNS, TLS or connection failure | check the URL |
-| `daemon_unreachable` | the daemon is down or did not start | `patchrome daemon logs` |
+| `daemon_unreachable` | the daemon is down, did not start, or stopped answering and was killed | `patchrome daemon logs`, then run the command again |
 | `daemon_outdated` | the daemon was started by a newer or unrelated patchrome build | `npx -y patchrome@latest`, or `patchrome daemon stop` when no agent is browsing |
 | `bad_args` | wrong usage, or a JS error in `eval` | read the message |
 | `unsupported_in_stealth` | the command needs a debug profile | rerun with `--profile debug` |
