@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     branches: [main]
+  # GitHub sometimes drops a push event. A run started by hand releases the commits that push missed.
+  workflow_dispatch:
 
 permissions:
   contents: read
