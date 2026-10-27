@@ -32,6 +32,8 @@ export interface ProfilePaths {
   chromeProfileDir: string;
   socketPath: string;
   lockDir: string;
+  // Holds the listening daemon's pid, so a client can end a daemon that stopped answering.
+  pidPath: string;
   logPath: string;
   sessionsDir: string;
   savedSessionsPath: string;
@@ -55,6 +57,7 @@ export function profilePaths(profile: string, env: NodeJS.ProcessEnv = process.e
     chromeProfileDir: join(profileDir, "chrome-profile"),
     socketPath,
     lockDir: join(profileDir, "daemon.lock"),
+    pidPath: join(profileDir, "daemon.pid"),
     logPath: join(profileDir, "daemon.log"),
     sessionsDir: join(profileDir, "sessions"),
     savedSessionsPath: join(profileDir, "sessions.json"),

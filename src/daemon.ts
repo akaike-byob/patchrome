@@ -1,11 +1,12 @@
 import { createHash, X509Certificate } from "node:crypto";
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import { currentBuildId, isNewerBuild } from "./build-id.ts";
 import { CopyGuard, type HostPrompts } from "./copy-guard.ts";
+import { settleWithin } from "./deadline.ts";
 import { detectHostPlatform } from "./host-platform.ts";
 import { hostPromptsFor } from "./host-prompts.ts";
 import { restoreSession, runCommand, type CommandContext } from "./commands.ts";
@@ -46,12 +47,32 @@ import { parseJsonInput } from "./validate.ts";
 const popupFocusGraceMs = 1_000;
 // How long a daemon whose Chrome never started keeps answering, so the command that started it hears why.
 const launchFailureGraceMs = 3_000;
+// The client gives up 30 s past a command's timeout. Answering 5 s sooner frees the session's queue for its next
+// command, and takes no time the client would still have waited.
+const commandGraceMs = 25_000;
+// Closing a frozen Chrome never finishes. Exiting anyway lets Patchright kill it on the way out.
+const engineCloseTimeoutMs = 10_000;
+
+export interface ChromeHealthCheck {
+  intervalMs: number;
+  answerTimeoutMs: number;
+  // Consecutive unanswered checks after which the daemon restarts. Saved sessions come back on their next command.
+  missesBeforeRestart: number;
+}
+
+const defaultChromeHealthCheck: ChromeHealthCheck = {
+  intervalMs: 30_000,
+  answerTimeoutMs: 5_000,
+  missesBeforeRestart: 3,
+};
 
 export interface DaemonOptions {
   prompts?: HostPrompts;
   exitProcess?: (code: number) => void;
   // PEM certificates Chrome and `proxy test` trust, so tests can run HTTPS proxies on self-signed certificates.
   trustedCertificates?: string[];
+  // Tests shorten the checks, so a frozen Chrome shows up in seconds.
+  chromeHealthCheck?: ChromeHealthCheck;
 }
 
 export async function runDaemon(
@@ -177,6 +198,9 @@ export async function runDaemon(
   let isShuttingDown = false;
   let isListening = true;
   let hasLaunchFailed = false;
+  const healthCheck = options.chromeHealthCheck ?? defaultChromeHealthCheck;
+  let healthTimer: NodeJS.Timeout | undefined;
+  let missedHealthChecks = 0;
 
   const server = createServer((socket) => handleConnection(socket));
 
@@ -185,11 +209,16 @@ export async function runDaemon(
     isShuttingDown = true;
     log(`shutting down: ${reason}`);
     clearTimeout(idleTimer);
+    clearTimeout(healthTimer);
     await stopListening();
     // Closing Chrome closes every page, which would save empty sessions over the ones to restore.
     await saveSessionsNow();
     isSavingSessions = false;
-    await engine.close().catch((err) => log(`engine close failed: ${String(err)}`));
+    await settleWithin(
+      engine.close(),
+      engineCloseTimeoutMs,
+      () => new Error(`Chrome did not close within ${engineCloseTimeoutMs} ms`),
+    ).catch((err: unknown) => log(`engine close failed: ${String(err)}`));
     if (options.exitProcess) options.exitProcess(0);
     else process.exit(0);
   };
@@ -201,6 +230,29 @@ export async function runDaemon(
     isListening = false;
     server.close();
     await rm(paths.socketPath, { force: true });
+    await rm(paths.pidPath, { force: true });
+  };
+
+  // A frozen Chrome leaves every command hanging. Restarting brings back a working one; clients reconnect.
+  const checkChromeHealth = async () => {
+    const isAnswering = await engine.isAnswering(healthCheck.answerTimeoutMs);
+    if (isShuttingDown) return;
+    if (isAnswering) {
+      missedHealthChecks = 0;
+      return;
+    }
+    missedHealthChecks += 1;
+    log(`Chrome missed health check ${missedHealthChecks} of ${healthCheck.missesBeforeRestart}`);
+    if (missedHealthChecks >= healthCheck.missesBeforeRestart)
+      void shutdown(`Chrome did not answer ${missedHealthChecks} health checks in a row`);
+  };
+  // Each check waits for the one before, so a slow answer never stacks a second check on top.
+  const scheduleHealthCheck = () => {
+    healthTimer = setTimeout(() => {
+      void checkChromeHealth().then(() => {
+        if (!isShuttingDown) scheduleHealthCheck();
+      });
+    }, healthCheck.intervalMs);
   };
 
   const shutdownOnceIdle = async (reason: string) => {
@@ -253,6 +305,7 @@ export async function runDaemon(
   // Listening before Chrome is up lets concurrent starters connect at once; requests wait on launch.
   const launched = launchBrowser();
   engine.onClosed(() => void shutdown("browser closed"));
+  launched.then(scheduleHealthCheck, () => {});
   launched.catch((err: unknown) => {
     const error = toCommandError(err);
     log(`browser launch failed: ${error.code} ${error.message}${error.hint === undefined ? "" : ` (${error.hint})`}`);
@@ -272,6 +325,7 @@ export async function runDaemon(
     server.listen(paths.socketPath, () => resolve());
   });
   await chmod(paths.socketPath, 0o600);
+  await writeFile(paths.pidPath, String(process.pid));
   // The starter's lock is released once the socket answers, so later starters connect instead of spawning.
   await rm(paths.lockDir, { recursive: true, force: true });
   log(`listening on ${paths.socketPath}, pid ${process.pid}, ${mode} profile`);
@@ -392,7 +446,8 @@ export async function runDaemon(
     // status and stop skip the queue too, so a command stuck in a session can still be inspected and ended.
     if (isStreaming(request) || request.command === "daemon-status" || request.command === "daemon-stop") {
       try {
-        await launched;
+        // Status answers during a slow launch too, so a client never takes a starting daemon for a stuck one.
+        if (request.command !== "daemon-status") await launched;
         const { lines, fields } = await runCommand(ctx, call);
         return send(socket, { id: request.id, ok: true, data: { lines, fields } });
       } catch (err) {
@@ -405,9 +460,26 @@ export async function runDaemon(
     const current = previous.then(async (): Promise<DaemonResponse> => {
       try {
         await launched;
-        await restoreIfSaved(request);
-        const { lines, fields, replay } = await runCommand(ctx, call);
-        await recordHistory(request, { lines, fields, replay });
+        const deadlineMs = request.timeoutMs + commandGraceMs;
+        const { lines, fields } = await settleWithin(
+          (async () => {
+            await restoreIfSaved(request);
+            const ran = await runCommand(ctx, call);
+            await recordHistory(request, ran);
+            return ran;
+          })(),
+          deadlineMs,
+          () => {
+            log(
+              `${request.session} ${request.command} still running after ${deadlineMs} ms; the session's next command runs`,
+            );
+            return new CommandError(
+              "timeout",
+              `${request.command} did not finish within ${deadlineMs} ms`,
+              "Chrome may still finish it; run `patchrome snapshot` to see the tab",
+            );
+          },
+        );
         return { id: request.id, ok: true, data: { lines, fields } };
       } catch (err) {
         const error = toCommandError(err);

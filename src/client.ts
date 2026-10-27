@@ -1,10 +1,11 @@
 import { currentBuildId, isNewerBuild, moduleExtension } from "./build-id.ts";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { idleMsFrom, isTestHeadlessFrom, profilePaths, type ProfilePaths } from "./paths.ts";
 import {
   CommandError,
@@ -14,11 +15,15 @@ import {
   type DaemonStreamLine,
 } from "./protocol.ts";
 
+const execFileAsync = promisify(execFile);
+
 const daemonStartTimeoutMs = 30_000;
 // An outdated daemon saves its sessions and closes Chrome before it exits; a new Chrome on the same profile
 // before then would hand its window to the old one and quit.
 const daemonExitTimeoutMs = 30_000;
 const daemonControlTimeoutMs = 10_000;
+// Status skips the session queues and Chrome, so a daemon whose event loop runs answers it at once.
+const statusProbeTimeoutMs = 5_000;
 const lockPollMs = 100;
 // A lock whose owner pid is dead is stale at once. Without a pid file yet, the owner may be between
 // mkdir and writing it, so only a lock older than this is stale.
@@ -97,6 +102,27 @@ export class DaemonConnection {
     }
   }
 
+  // A daemon that answers status is busy, not stuck, and stays. One that does not has a blocked event loop, which
+  // no request can reach, so it ends here with its Chrome. Saved sessions come back on their next command.
+  // Holding the start lock keeps other CLIs from launching a Chrome before the old one is gone.
+  async #endUnansweringDaemon(session: string): Promise<number | undefined> {
+    const paths = profilePaths(this.#profile, this.#env);
+    await acquireLock(paths.lockDir);
+    try {
+      if (await answersStatus(paths.socketPath, session, this.#env)) return undefined;
+      const pid = Number(await readFile(paths.pidPath, "utf8").catch(() => "0"));
+      if (pid <= 0 || !(await isDaemonProcess(pid))) return undefined;
+      this.close();
+      await killDaemonAndChrome(pid);
+      await waitForExit(pid);
+      await rm(paths.socketPath, { force: true });
+      await rm(paths.pidPath, { force: true });
+      return pid;
+    } finally {
+      await rm(paths.lockDir, { recursive: true, force: true });
+    }
+  }
+
   async #runningDaemon(session: string): Promise<{ buildId: string; pid: number } | undefined> {
     try {
       const status = await this.#send(daemonControl(session, "daemon-status"));
@@ -117,7 +143,21 @@ export class DaemonConnection {
       const timer = setTimeout(() => {
         this.#pending.delete(id);
         this.#unrefWhenIdle(socket);
-        reject(new CommandError("daemon_unreachable", `daemon did not answer within ${deadlineMs} ms`));
+        const message = `daemon did not answer within ${deadlineMs} ms`;
+        void this.#endUnansweringDaemon(request.session).then(
+          (endedPid) =>
+            reject(
+              new CommandError(
+                "daemon_unreachable",
+                message,
+                endedPid === undefined
+                  ? undefined
+                  : `patchrome ended daemon pid ${endedPid} and its Chrome, which stopped answering; run the command again to start a new one`,
+              ),
+            ),
+          (err: unknown) =>
+            reject(new CommandError("daemon_unreachable", message, `ending the stuck daemon failed: ${String(err)}`)),
+        );
       }, deadlineMs);
       this.#pending.set(id, { resolve, reject, onStream: request.onStream ?? (() => {}), timer, socket });
     });
@@ -225,6 +265,58 @@ async function waitForExit(pid: number): Promise<void> {
         "see `patchrome daemon logs`",
       );
     await sleep(lockPollMs);
+  }
+}
+
+// Any answer counts, an error included: it shows the daemon's event loop still runs.
+function answersStatus(socketPath: string, session: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(socketPath);
+    const finish = (isAnswering: boolean) => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(isAnswering);
+    };
+    const timer = setTimeout(() => finish(false), statusProbeTimeoutMs);
+    socket.once("error", () => finish(false));
+    socket.once("data", () => finish(true));
+    socket.write(
+      `${JSON.stringify({ id: 1, session, command: "daemon-status", args: {}, timeoutMs: statusProbeTimeoutMs, buildId: currentBuildId(env) })}\n`,
+    );
+  });
+}
+
+// The pid file can outlive its daemon, and the system may have handed the pid to another process since.
+async function isDaemonProcess(pid: number): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("ps", ["-o", "command=", "-p", String(pid)]);
+    return stdout.includes("__daemon");
+  } catch {
+    return false;
+  }
+}
+
+// A blocked event loop never runs a SIGTERM handler, so only SIGKILL ends it, and then Patchright's exit hook
+// never kills Chrome. Patchright starts Chrome as a process group leader, so killing each child's group takes
+// Chrome's helper processes with it.
+async function killDaemonAndChrome(pid: number): Promise<void> {
+  const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)]).catch(() => ({ stdout: "" }));
+  const childPids = stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map(Number);
+  process.kill(pid, "SIGKILL");
+  for (const childPid of childPids) {
+    try {
+      process.kill(-childPid, "SIGKILL");
+    } catch {
+      // A child that leads no group of its own goes alone.
+      try {
+        process.kill(childPid, "SIGKILL");
+      } catch {
+        // It exited between pgrep and now.
+      }
+    }
   }
 }
 

@@ -71,7 +71,7 @@ Exit code 0 ok, 1 command error, 2 bad usage. `--json` errors carry a `code`:
 |---|---|
 | `tab_gone` | current tab closed or none yet: `patchrome open <url>`; never grab another session's tab |
 | `ref_stale` | page changed since the snapshot: `patchrome snapshot`, pick the ref again, or use a locator |
-| `timeout` | snapshot to see the page state; raise `--timeout-ms` if the site is slow |
+| `timeout` | snapshot to see the page state; raise `--timeout-ms` if the site is slow. A `did not finish` timeout means the call hung: do not repeat it unchanged |
 | `navigation_failed` | DNS, TLS or connection failure: check the URL, retry once |
 | `daemon_unreachable` | `patchrome daemon logs`; the next command restarts the daemon |
 | `daemon_outdated` | a CLI older than the daemon: rerun through `npx -y patchrome@latest`; if it still fails, tell the user |
